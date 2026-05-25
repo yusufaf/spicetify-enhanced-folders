@@ -158,35 +158,68 @@
   }
   //#endregion
 
-  //#region Rootlist enumeration
-  /** @returns {Promise<Map<string, string>>} map of folderId -> folder name */
-  async function fetchFolderMap() {
-    const map = new Map();
-    try {
-      const rootlist = await Spicetify.CosmosAsync.get(
-        "sp://core-playlist/v1/rootlist"
-      );
-      walkRows(rootlist?.rows || [], map);
-    } catch (err) {
-      console.error(`${LOG_PREFIX} fetchFolderMap failed`, err);
+  //#region Rootlist enumeration (Platform.RootlistAPI — Cosmos sp://core-playlist is gone)
+  /** @typedef {{ uri: string, name: string }} FolderMeta */
+
+  /** @type {Map<string, FolderMeta> | null} */
+  let _folderCache = null;
+  let _folderCacheTime = 0;
+  /** @type {Promise<Map<string, FolderMeta>> | null} */
+  let _folderInflight = null;
+  const FOLDER_CACHE_TTL_MS = 30_000;
+
+  /**
+   * Returns map of folderId -> { uri, name }. Cached for 30s so we don't
+   * thrash the API on every MutationObserver tick.
+   * @param {{ force?: boolean }} [opts]
+   * @returns {Promise<Map<string, FolderMeta>>}
+   */
+  async function fetchFolderMap(opts = {}) {
+    if (
+      !opts.force &&
+      _folderCache &&
+      Date.now() - _folderCacheTime < FOLDER_CACHE_TTL_MS
+    ) {
+      return _folderCache;
     }
-    return map;
+    if (_folderInflight) return _folderInflight;
+
+    _folderInflight = (async () => {
+      const map = new Map();
+      try {
+        const api = Spicetify.Platform?.RootlistAPI;
+        if (!api?.getContents) {
+          throw new Error("Spicetify.Platform.RootlistAPI.getContents missing");
+        }
+        const root = await api.getContents();
+        walkNode(root, map);
+        _folderCache = map;
+        _folderCacheTime = Date.now();
+      } catch (err) {
+        console.error(`${LOG_PREFIX} fetchFolderMap failed`, err);
+        if (!_folderCache) _folderCache = map;
+      } finally {
+        _folderInflight = null;
+      }
+      return _folderCache || map;
+    })();
+
+    return _folderInflight;
   }
 
-  function walkRows(rows, map) {
-    for (const row of rows) {
-      if (!row || typeof row !== "object") continue;
-      if (row.type === "folder") {
-        const id = folderIdFromUri(row.link || row.uri);
-        if (id) map.set(id, row.name || "");
-        if (Array.isArray(row.rows)) walkRows(row.rows, map);
-      }
+  function walkNode(node, map) {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "folder" && node.uri) {
+      const id = folderIdFromUri(node.uri);
+      if (id) map.set(id, { uri: node.uri, name: node.name || "" });
     }
+    const children = node.items || node.rows || node.children || [];
+    for (const c of children) walkNode(c, map);
   }
 
   /** Drop stored entries whose folders no longer exist. */
   async function cleanUpStaleEntries() {
-    const map = await fetchFolderMap();
+    const map = await fetchFolderMap({ force: true });
     if (map.size === 0) return; // bail to avoid wiping data on a transient failure
     const store = loadAll();
     let removed = 0;
@@ -240,6 +273,49 @@
   }
   //#endregion
 
+  //#region Folder rename
+  /**
+   * Try every documented and undocumented way to rename a folder. The exact
+   * RootlistAPI shape shifts between Spotify versions, and the old Cosmos
+   * sp://core-playlist endpoint no longer resolves. Returns null on success
+   * or the last error on total failure.
+   * @param {string} uri
+   * @param {string} newName
+   * @returns {Promise<Error | null>}
+   */
+  async function tryRenameFolder(uri, newName) {
+    const api = Spicetify.Platform?.RootlistAPI;
+    if (!api) return new Error("Spicetify.Platform.RootlistAPI unavailable");
+
+    /** @type {Array<[string, () => Promise<any>]>} */
+    const attempts = [
+      ["rename(uri, name)", () => api.rename?.(uri, newName)],
+      ["rename({uri,name})", () => api.rename?.({ uri, name: newName })],
+      ["setName(uri, name)", () => api.setName?.(uri, newName)],
+      ["update(uri, {name})", () => api.update?.(uri, { name: newName })],
+      [
+        "setProperties(uri, {name})",
+        () => api.setProperties?.(uri, { name: newName }),
+      ],
+    ];
+
+    let lastErr = null;
+    for (const [label, fn] of attempts) {
+      try {
+        const ret = fn();
+        if (ret === undefined) continue; // method doesn't exist
+        await ret;
+        console.log(`${LOG_PREFIX} rename succeeded via ${label}`);
+        return null;
+      } catch (err) {
+        console.warn(`${LOG_PREFIX} rename via ${label} failed`, err);
+        lastErr = err instanceof Error ? err : new Error(String(err));
+      }
+    }
+    return lastErr || new Error("No working rename method on RootlistAPI");
+  }
+  //#endregion
+
   //#region Edit details modal
   /** @param {string} folderUri */
   async function openEditDetailsModal(folderUri) {
@@ -250,7 +326,8 @@
     }
 
     const folderMap = await fetchFolderMap();
-    const folderName = folderMap.get(folderId) || "Folder";
+    const folderMeta = folderMap.get(folderId);
+    const folderName = folderMeta?.name || "Folder";
     const existing = getFolderData(folderId);
     /** @type {string | null} */
     let pendingImage = existing.image || null;
@@ -351,40 +428,32 @@
       const description = descArea.value.trim();
       const newName = nameInput.value.trim();
 
-      // Rename via Spotify's RootlistAPI if changed
       let renameError = null;
+      let renamed = false;
       if (newName && newName !== folderName) {
-        try {
-          const api = Spicetify.Platform?.RootlistAPI;
-          if (api?.rename) {
-            await api.rename(folderUri, newName);
-          } else if (api?.update) {
-            await api.update(folderUri, { name: newName });
-          } else {
-            // Fallback: direct Cosmos PUT
-            await Spicetify.CosmosAsync.put(
-              `sp://core-playlist/v1/playlist/${encodeURIComponent(folderUri)}/rows`,
-              { name: newName }
-            );
-          }
-        } catch (err) {
-          console.error(`${LOG_PREFIX} rename failed`, err);
-          renameError = err;
-        }
+        renameError = await tryRenameFolder(
+          folderMeta?.uri || folderUri,
+          newName
+        );
+        renamed = !renameError;
       }
 
       setFolderData(folderId, {
         image: pendingImage || undefined,
         description: description || undefined,
       });
+      // Invalidate cache so next decorate pass picks up the new name
+      _folderCache = null;
       Spicetify.PopupModal.hide();
       if (renameError) {
         Spicetify.showNotification(
-          "Saved image/description, but rename failed",
+          "Saved — but rename via Spotify's Rename instead (API unavailable)",
           true
         );
+      } else if (renamed) {
+        Spicetify.showNotification("Saved & renamed");
       } else {
-        Spicetify.showNotification(`Updated: ${newName || folderName}`);
+        Spicetify.showNotification("Saved");
       }
       decorateAllFolders();
     });
@@ -609,62 +678,50 @@
   //#endregion
 
   //#region Sidebar decoration
-  /** @type {Map<string, string>} cached name -> folderId (built each decoration pass) */
-  let _nameToIdCache = new Map();
-
-  function findSidebarRoot() {
-    for (const sel of SIDEBAR_ROOT_SELECTORS) {
-      const el = document.querySelector(sel);
-      if (el) return el;
+  /**
+   * Find the sidebar row element for a specific folder URI. Spotify gives each
+   * row an inner element with id `listrow-title-<full-uri>`, so `:has()` on the
+   * list item is a stable way to locate it by URI.
+   * @param {string} uri
+   * @returns {HTMLElement | null}
+   */
+  function findRowForUri(uri) {
+    const escaped = CSS.escape(`listrow-title-${uri}`);
+    /** @type {string[]} */
+    const selectors = [
+      `.main-yourLibraryX-listItem:has(#${escaped})`,
+      `li:has(#${escaped})`,
+      `[role="treeitem"]:has(#${escaped})`,
+    ];
+    for (const sel of selectors) {
+      try {
+        const el = /** @type {HTMLElement | null} */ (document.querySelector(sel));
+        if (el) return el;
+      } catch {
+        // CSS.escape produced an invalid selector for this browser; skip
+      }
     }
-    return document.body; // fallback so observer still works
-  }
-
-  /** Returns array of folder row elements (best-effort across Spotify versions). */
-  function findFolderRowElements() {
-    const root = findSidebarRoot();
-    /** @type {Element[]} */
-    const results = [];
-    const seen = new Set();
-    for (const sel of FOLDER_ROW_SELECTORS) {
-      root.querySelectorAll(sel).forEach((el) => {
-        if (!seen.has(el)) {
-          seen.add(el);
-          results.push(el);
-        }
-      });
+    // Fallback: locate the title element directly then walk up to the row container
+    const titleEl = document.getElementById(`listrow-title-${uri}`);
+    if (titleEl) {
+      return /** @type {HTMLElement | null} */ (
+        titleEl.closest(
+          'li, [role="treeitem"], .main-yourLibraryX-listItem'
+        )
+      );
     }
-    return results;
-  }
-
-  /** Try to derive a folder ID for a given sidebar row element. */
-  function rowToFolderId(rowEl) {
-    // Strategy 1: any descendant link's href contains "spotify:folder:" or "/folder/"
-    const link = rowEl.querySelector('a[href*="folder"], [href*="folder"]');
-    if (link) {
-      const href = link.getAttribute("href") || "";
-      const id = folderIdFromUri(href) || (href.match(/folder\/([0-9a-f]+)/i) || [])[1];
-      if (id) return id;
-    }
-    // Strategy 2: aria-labelledby references an element whose id/text contains the URI
-    const labelledBy = rowEl.getAttribute("aria-labelledby") || "";
-    const idFromAria = folderIdFromUri(labelledBy);
-    if (idFromAria) return idFromAria;
-    // Strategy 3: name match — read row text, look up via cache built from rootlist
-    const text = rowEl.textContent?.trim() || "";
-    if (text && _nameToIdCache.has(text)) return _nameToIdCache.get(text);
     return null;
   }
 
-  /** Find or create the image slot inside a folder row. */
+  /** Find a usable container inside the row for our image overlay. */
   function getOrCreateImageSlot(rowEl) {
-    // Prefer Spotify's own image container
     const existing =
       rowEl.querySelector(".x-entityImage-imageContainer") ||
       rowEl.querySelector(".main-cardImage-imageWrapper") ||
-      rowEl.querySelector('[data-testid="entity-image"]');
+      rowEl.querySelector('[data-testid="entity-image"]') ||
+      rowEl.querySelector(".main-yourLibraryX-listItemArtwork") ||
+      rowEl.querySelector('[role="img"]');
     if (existing) return /** @type {HTMLElement} */ (existing);
-    // Otherwise inject our own container before the first child
     let slot = rowEl.querySelector(".ef-injected-image-slot");
     if (!slot) {
       slot = document.createElement("div");
@@ -676,14 +733,14 @@
 
   function decorateRow(rowEl, data) {
     const slot = getOrCreateImageSlot(rowEl);
-    // Tooltip via title attribute
     if (data.description) {
       rowEl.setAttribute("title", data.description);
     } else {
       rowEl.removeAttribute("title");
     }
-    // Image overlay
-    let img = slot.querySelector("img.ef-folder-img");
+    let img = /** @type {HTMLImageElement | null} */ (
+      slot.querySelector("img.ef-folder-img")
+    );
     if (data.image) {
       if (!img) {
         img = document.createElement("img");
@@ -691,9 +748,7 @@
         img.alt = "";
         slot.appendChild(img);
       }
-      if (img.getAttribute("src") !== data.image) {
-        img.setAttribute("src", data.image);
-      }
+      if (img.getAttribute("src") !== data.image) img.src = data.image;
       slot.classList.add("ef-has-image");
     } else {
       if (img) img.remove();
@@ -710,45 +765,40 @@
       .querySelectorAll(".ef-injected-image-slot")
       .forEach((n) => n.remove());
     rowEl
-      .querySelectorAll(".x-entityImage-imageContainer, .main-cardImage-imageWrapper")
+      .querySelectorAll(
+        ".x-entityImage-imageContainer, .main-cardImage-imageWrapper, .main-yourLibraryX-listItemArtwork"
+      )
       .forEach((n) => n.classList.remove("ef-has-image"));
   }
 
-  let _decorateScheduled = false;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let _decorateTimer = null;
   function scheduleDecorate() {
-    if (_decorateScheduled) return;
-    _decorateScheduled = true;
-    requestAnimationFrame(async () => {
-      _decorateScheduled = false;
-      await decorateAllFolders();
-    });
+    if (_decorateTimer) return;
+    _decorateTimer = setTimeout(() => {
+      _decorateTimer = null;
+      decorateAllFolders();
+    }, 150);
   }
 
   async function decorateAllFolders() {
     const store = loadAll();
-    if (Object.keys(store.folders).length === 0) return;
-    // Refresh name->id cache for fallback matching
+    const ids = Object.keys(store.folders);
+    if (ids.length === 0) return;
     const folderMap = await fetchFolderMap();
-    _nameToIdCache = new Map();
-    for (const [id, name] of folderMap.entries()) {
-      if (name) _nameToIdCache.set(name, id);
+    let matched = 0;
+    for (const id of ids) {
+      const meta = folderMap.get(id);
+      if (!meta) continue;
+      const row = findRowForUri(meta.uri);
+      if (!row) continue;
+      decorateRow(row, store.folders[id]);
+      matched += 1;
     }
-    const rows = findFolderRowElements();
-    if (rows.length === 0) {
+    if (matched === 0 && folderMap.size > 0) {
       console.debug(
-        `${LOG_PREFIX} no folder rows matched — selectors may have drifted.`
+        `${LOG_PREFIX} no folder rows matched for ${ids.length} stored folder(s) — folder may be in collapsed parent or selectors drifted.`
       );
-      return;
-    }
-    for (const row of rows) {
-      const id = rowToFolderId(row);
-      if (!id) continue;
-      const data = store.folders[id];
-      if (data) {
-        decorateRow(row, data);
-      } else if (row.hasAttribute(DECOR_ATTR)) {
-        undecorateRow(row);
-      }
     }
   }
   //#endregion
@@ -832,8 +882,8 @@
       }
       .ef-edit-input {
         width: 100%; padding: 8px 12px;
-        background: var(--spice-card, hsla(0, 0%, 100%, 0.1));
-        border: 1px solid transparent;
+        background: var(--spice-card, hsla(0, 0%, 100%, 0.06));
+        border: 1px solid var(--spice-button-disabled, hsla(0, 0%, 100%, 0.18));
         border-radius: 4px;
         color: var(--spice-text, #fff);
         font-size: 14px; font-family: inherit;
@@ -987,5 +1037,11 @@
       Object.keys(state.folders).length
     } stored folder(s).`
   );
+  // Surface available RootlistAPI surface so users can report what's
+  // available if rename / decoration breaks on their Spotify version.
+  try {
+    const apiKeys = Object.keys(Spicetify.Platform?.RootlistAPI || {});
+    console.debug(`${LOG_PREFIX} Platform.RootlistAPI methods:`, apiKeys);
+  } catch {}
   //#endregion
 })();
