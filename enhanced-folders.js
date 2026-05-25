@@ -18,19 +18,6 @@
   const IMAGE_JPEG_QUALITY = 0.85;
   const MAX_DESCRIPTION_LEN = 1000;
 
-  /** @type {string[]} sidebar root containers to observe (first match wins) */
-  const SIDEBAR_ROOT_SELECTORS = [
-    ".main-yourLibraryX-libraryRootlist",
-    '[data-testid="rootlist"]',
-    'nav[aria-label="Your Library"]',
-  ];
-
-  /** @type {string[]} candidate selectors for a folder row in the sidebar */
-  const FOLDER_ROW_SELECTORS = [
-    "li.main-useDropTarget-folder",
-    'li[role="treeitem"][aria-labelledby*="folder"]',
-    'div[role="row"][aria-labelledby*="folder"]',
-  ];
   //#endregion
 
   //#region Wait for Spicetify
@@ -678,70 +665,92 @@
   //#endregion
 
   //#region Sidebar decoration
+  /** Compose the set of URI formats Spotify might key its listrow-title id by. */
+  function uriVariants(uri) {
+    const out = new Set();
+    if (uri) out.add(uri);
+    const id = folderIdFromUri(uri);
+    if (id) {
+      out.add(`spotify:folder:${id}`);
+      const user = Spicetify.Platform?.username;
+      if (user) out.add(`spotify:user:${user}:folder:${id}`);
+    }
+    return [...out];
+  }
+
   /**
-   * Find the sidebar row element for a specific folder URI. Spotify gives each
-   * row an inner element with id `listrow-title-<full-uri>`, so `:has()` on the
-   * list item is a stable way to locate it by URI.
-   * @param {string} uri
+   * Find the sidebar row element for a folder URI. Spotify tags each row with
+   * an inner element `#listrow-title-<uri>`, but the URI prefix (user-scoped
+   * vs plain) varies between API surfaces, so we try several variants.
    * @returns {HTMLElement | null}
    */
   function findRowForUri(uri) {
-    const escaped = CSS.escape(`listrow-title-${uri}`);
-    /** @type {string[]} */
-    const selectors = [
-      `.main-yourLibraryX-listItem:has(#${escaped})`,
-      `li:has(#${escaped})`,
-      `[role="treeitem"]:has(#${escaped})`,
-    ];
-    for (const sel of selectors) {
-      try {
-        const el = /** @type {HTMLElement | null} */ (document.querySelector(sel));
-        if (el) return el;
-      } catch {
-        // CSS.escape produced an invalid selector for this browser; skip
+    for (const variant of uriVariants(uri)) {
+      // getElementById bypasses CSS.escape quirks with `:` in IDs
+      const titleEl = document.getElementById(`listrow-title-${variant}`);
+      if (titleEl) {
+        const row = titleEl.closest(
+          '.main-yourLibraryX-listItem, li, [role="treeitem"], [role="row"]'
+        );
+        if (row) return /** @type {HTMLElement} */ (row);
       }
-    }
-    // Fallback: locate the title element directly then walk up to the row container
-    const titleEl = document.getElementById(`listrow-title-${uri}`);
-    if (titleEl) {
-      return /** @type {HTMLElement | null} */ (
-        titleEl.closest(
-          'li, [role="treeitem"], .main-yourLibraryX-listItem'
-        )
-      );
     }
     return null;
   }
 
-  /** Find a usable container inside the row for our image overlay. */
-  function getOrCreateImageSlot(rowEl) {
-    const existing =
-      rowEl.querySelector(".x-entityImage-imageContainer") ||
-      rowEl.querySelector(".main-cardImage-imageWrapper") ||
-      rowEl.querySelector('[data-testid="entity-image"]') ||
-      rowEl.querySelector(".main-yourLibraryX-listItemArtwork") ||
-      rowEl.querySelector('[role="img"]');
-    if (existing) return /** @type {HTMLElement} */ (existing);
-    let slot = rowEl.querySelector(".ef-injected-image-slot");
-    if (!slot) {
-      slot = document.createElement("div");
-      slot.className = "ef-injected-image-slot";
-      rowEl.insertBefore(slot, rowEl.firstChild);
+  /** Locate the artwork box inside a folder row (where the icon currently lives). */
+  function findArtworkSlot(rowEl) {
+    /** @type {string[]} */
+    const candidates = [
+      ".x-entityImage-imageContainer",
+      ".main-cardImage-imageWrapper",
+      ".main-yourLibraryX-listItemArtwork",
+      ".main-yourLibraryX-rowImage",
+      '[data-testid="entity-image"]',
+    ];
+    for (const sel of candidates) {
+      const el = rowEl.querySelector(sel);
+      if (el) return /** @type {HTMLElement} */ (el);
     }
-    return /** @type {HTMLElement} */ (slot);
+    return null;
   }
 
   function decorateRow(rowEl, data) {
-    const slot = getOrCreateImageSlot(rowEl);
+    // Tooltip
     if (data.description) {
       rowEl.setAttribute("title", data.description);
     } else {
       rowEl.removeAttribute("title");
     }
-    let img = /** @type {HTMLImageElement | null} */ (
-      slot.querySelector("img.ef-folder-img")
-    );
+
     if (data.image) {
+      const slot = findArtworkSlot(rowEl);
+      if (!slot) {
+        // Cannot decorate without an artwork container — emit one debug line
+        // per row (deduped) so console isn't spammed.
+        if (!rowEl.hasAttribute("data-ef-warned")) {
+          rowEl.setAttribute("data-ef-warned", "1");
+          console.debug(
+            `${LOG_PREFIX} no artwork container in row; image not applied. Row:`,
+            rowEl
+          );
+        }
+        return;
+      }
+
+      // Force a positioning context so our absolutely-positioned <img> is
+      // sized to THIS slot, not some larger positioned ancestor.
+      if (getComputedStyle(slot).position === "static") {
+        slot.style.position = "relative";
+      }
+      // Tame any overflow so we don't bleed past the artwork box
+      if (getComputedStyle(slot).overflow === "visible") {
+        slot.style.overflow = "hidden";
+      }
+
+      let img = /** @type {HTMLImageElement | null} */ (
+        slot.querySelector(":scope > img.ef-folder-img")
+      );
       if (!img) {
         img = document.createElement("img");
         img.className = "ef-folder-img";
@@ -751,8 +760,13 @@
       if (img.getAttribute("src") !== data.image) img.src = data.image;
       slot.classList.add("ef-has-image");
     } else {
-      if (img) img.remove();
-      slot.classList.remove("ef-has-image");
+      // Description-only: strip any prior image
+      rowEl
+        .querySelectorAll(".ef-folder-img")
+        .forEach((n) => n.remove());
+      rowEl
+        .querySelectorAll(".ef-has-image")
+        .forEach((n) => n.classList.remove("ef-has-image"));
     }
     rowEl.setAttribute(DECOR_ATTR, "1");
   }
@@ -760,15 +774,12 @@
   function undecorateRow(rowEl) {
     rowEl.removeAttribute("title");
     rowEl.removeAttribute(DECOR_ATTR);
+    rowEl.removeAttribute("data-ef-warned");
     rowEl.querySelectorAll(".ef-folder-img").forEach((n) => n.remove());
-    rowEl
-      .querySelectorAll(".ef-injected-image-slot")
-      .forEach((n) => n.remove());
-    rowEl
-      .querySelectorAll(
-        ".x-entityImage-imageContainer, .main-cardImage-imageWrapper, .main-yourLibraryX-listItemArtwork"
-      )
-      .forEach((n) => n.classList.remove("ef-has-image"));
+    rowEl.querySelectorAll(".ef-has-image").forEach((n) => {
+      n.classList.remove("ef-has-image");
+      // Leave inline position/overflow styles — harmless if container kept
+    });
   }
 
   /** @type {ReturnType<typeof setTimeout> | null} */
@@ -797,7 +808,7 @@
     }
     if (matched === 0 && folderMap.size > 0) {
       console.debug(
-        `${LOG_PREFIX} no folder rows matched for ${ids.length} stored folder(s) — folder may be in collapsed parent or selectors drifted.`
+        `${LOG_PREFIX} no rows matched for ${ids.length} stored folder(s) — parent folder may be collapsed.`
       );
     }
   }
@@ -809,29 +820,27 @@
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
-      /* Sidebar overlay */
-      .ef-injected-image-slot {
-        width: 32px;
-        height: 32px;
-        flex-shrink: 0;
-        border-radius: 4px;
-        overflow: hidden;
-        position: relative;
-        margin-right: 8px;
-      }
+      /* Sidebar image overlay.
+         The <img> is absolutely positioned to fill the artwork slot. JS
+         forces position:relative + overflow:hidden on the slot at decoration
+         time so the image is always sized to that slot specifically — never
+         escapes to a larger positioned ancestor. */
       .ef-folder-img {
         position: absolute;
         inset: 0;
         width: 100%;
         height: 100%;
         object-fit: cover;
-        border-radius: 4px;
-        z-index: 1;
+        border-radius: inherit;
+        z-index: 2;
         pointer-events: none;
+        display: block;
       }
-      .x-entityImage-imageContainer.ef-has-image > svg,
-      .main-cardImage-imageWrapper.ef-has-image > svg {
-        display: none;
+      /* Hide the default folder SVG/placeholder underneath our image */
+      .ef-has-image > svg,
+      .ef-has-image > [class*="placeholder"],
+      .ef-has-image > [class*="Placeholder"] {
+        visibility: hidden;
       }
 
       /* ─── Edit details modal ─── */
@@ -1011,13 +1020,15 @@
   // Initial paint
   scheduleDecorate();
 
-  // Re-decorate on sidebar mutations
+  // Re-decorate on sidebar mutations. Scope the observer to the library
+  // rootlist if it exists (cheaper); otherwise fall back to document.body.
   const observer = new MutationObserver(() => scheduleDecorate());
-  const startObserver = () => {
-    const root = findSidebarRoot();
-    observer.observe(root, { childList: true, subtree: true });
-  };
-  startObserver();
+  const observerRoot =
+    document.querySelector(".main-yourLibraryX-libraryRootlist") ||
+    document.querySelector('[data-testid="rootlist"]') ||
+    document.querySelector('nav[aria-label="Your Library"]') ||
+    document.body;
+  observer.observe(observerRoot, { childList: true, subtree: true });
 
   // Re-decorate on navigation
   try {
