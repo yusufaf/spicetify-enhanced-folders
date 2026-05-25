@@ -261,23 +261,6 @@
   //#endregion
 
   //#region Folder rename
-  /** Enumerate own + prototype method names on an object. */
-  function listMethods(obj) {
-    const names = new Set();
-    let cur = obj;
-    while (cur && cur !== Object.prototype) {
-      for (const k of Reflect.ownKeys(cur)) {
-        if (typeof k === "string" && k !== "constructor") {
-          try {
-            if (typeof obj[k] === "function") names.add(k);
-          } catch {}
-        }
-      }
-      cur = Object.getPrototypeOf(cur);
-    }
-    return [...names].sort();
-  }
-
   /**
    * Rename a folder via Spicetify.Platform.RootlistAPI.
    *
@@ -778,18 +761,7 @@
 
     if (data.image) {
       const slot = findArtworkSlot(rowEl);
-      if (!slot) {
-        // Cannot decorate without an artwork container — emit one debug line
-        // per row (deduped) so console isn't spammed.
-        if (!rowEl.hasAttribute("data-ef-warned")) {
-          rowEl.setAttribute("data-ef-warned", "1");
-          console.debug(
-            `${LOG_PREFIX} no artwork container in row; image not applied. Row:`,
-            rowEl
-          );
-        }
-        return;
-      }
+      if (!slot) return; // no artwork box on this row layout — skip silently
 
       // Force a positioning context so our absolutely-positioned <img> is
       // sized to THIS slot, not some larger positioned ancestor.
@@ -822,17 +794,6 @@
         .forEach((n) => n.classList.remove("ef-has-image"));
     }
     rowEl.setAttribute(DECOR_ATTR, "1");
-  }
-
-  function undecorateRow(rowEl) {
-    rowEl.removeAttribute("title");
-    rowEl.removeAttribute(DECOR_ATTR);
-    rowEl.removeAttribute("data-ef-warned");
-    rowEl.querySelectorAll(".ef-folder-img").forEach((n) => n.remove());
-    rowEl.querySelectorAll(".ef-has-image").forEach((n) => {
-      n.classList.remove("ef-has-image");
-      // Leave inline position/overflow styles — harmless if container kept
-    });
   }
 
   /** @type {ReturnType<typeof setTimeout> | null} */
@@ -1101,27 +1062,5 @@
       Object.keys(state.folders).length
     } stored folder(s).`
   );
-  // Probe Spicetify.Platform so users can see what's actually available
-  // on their Spotify version. Joins method arrays into a single string
-  // so DevTools shows them inline instead of collapsing to `Array(N)`.
-  try {
-    const platform = Spicetify.Platform || {};
-    for (const name of ["RootlistAPI", "PlaylistAPI", "LibraryAPI"]) {
-      if (!platform[name]) continue;
-      const methods = listMethods(platform[name]);
-      console.log(
-        `${LOG_PREFIX} ${name} (${methods.length} methods): ${methods.join(", ")}`
-      );
-    }
-    // Source of renameFolder reveals param shape even when minified.
-    const rf = platform.RootlistAPI?.renameFolder;
-    if (typeof rf === "function") {
-      console.log(
-        `${LOG_PREFIX} renameFolder.toString(): ${rf.toString().slice(0, 500)}`
-      );
-    }
-  } catch (err) {
-    console.warn(`${LOG_PREFIX} Platform probe failed`, err);
-  }
   //#endregion
 })();
