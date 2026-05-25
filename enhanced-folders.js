@@ -281,17 +281,23 @@
   /**
    * Rename a folder via Spicetify.Platform.RootlistAPI.
    *
-   * Per the auto-generated Spotify Platform types (bespoke-alpha/stdlib),
-   * `renameFolder` takes a SINGLE arg — not two positional args — and
-   * internally wraps it as a protobuf Modification passed to
-   * applyModification. Empirically the wrapper expects an object whose
-   * fields populate the protobuf message; passing a bare URI string causes
-   * `.uri` / `.name` lookups to return undefined and the string encoder
-   * crashes on `.length`.
+   * The minified source of RootlistAPI.renameFolder (revealed at boot via
+   * .toString()) is:
    *
-   * We try a small set of plausible object shapes (the exact field names
-   * aren't documented), then fall back to applyModification directly, then
-   * to the lower-level _rootlistModificationClient.modify.
+   *   async renameFolder(e, t) {
+   *     await this.applyModification({
+   *       operation: "set",
+   *       attributes: { name: t },
+   *       rows: [e.uri]
+   *     });
+   *   }
+   *
+   * Two args: first is an OBJECT carrying `.uri`, second is the new name
+   * string. The bespoke-alpha autogen typed it as one arg — that was wrong.
+   *
+   * Primary call mirrors the source exactly. Fallback inlines the same
+   * applyModification payload in case a future Spotify version drops the
+   * wrapper but keeps applyModification's modification grammar.
    *
    * @param {string} uri
    * @param {string} newName
@@ -303,48 +309,18 @@
 
     /** @type {Array<[string, () => any]>} */
     const attempts = [
-      // Single-object-arg shapes for renameFolder (autogen: renameFolder: (a) => any)
       [
-        "renameFolder({uri, name})",
-        () => root.renameFolder?.({ uri, name: newName }),
+        "renameFolder({uri}, name)",
+        () => root.renameFolder?.({ uri }, newName),
       ],
       [
-        "renameFolder({uri, newName})",
-        () => root.renameFolder?.({ uri, newName }),
-      ],
-      [
-        "renameFolder({folder: uri, name})",
-        () => root.renameFolder?.({ folder: uri, name: newName }),
-      ],
-      [
-        "renameFolder({folderUri: uri, name})",
-        () => root.renameFolder?.({ folderUri: uri, name: newName }),
-      ],
-      [
-        "renameFolder({uri, attributes: {name}})",
-        () => root.renameFolder?.({ uri, attributes: { name: newName } }),
-      ],
-      // applyModification direct (the wrapper renameFolder calls through to)
-      [
-        "applyModification({rename:{uri, name}})",
-        () =>
-          root.applyModification?.({ rename: { uri, name: newName } }),
-      ],
-      [
-        "applyModification({type:'rename', uri, name})",
+        // Same payload renameFolder builds internally — direct call.
+        "applyModification({operation:set, attributes:{name}, rows:[uri]})",
         () =>
           root.applyModification?.({
-            type: "rename",
-            uri,
-            name: newName,
-          }),
-      ],
-      // Lower-level _rootlistModificationClient.modify if exposed
-      [
-        "_rootlistModificationClient.modify({rename:{uri, name}})",
-        () =>
-          root._rootlistModificationClient?.modify?.({
-            rename: { uri, name: newName },
+            operation: "set",
+            attributes: { name: newName },
+            rows: [uri],
           }),
       ],
     ];
@@ -360,7 +336,7 @@
         lastErr = err instanceof Error ? err : new Error(String(err));
         continue;
       }
-      if (ret === undefined) continue; // method missing on this version
+      if (ret === undefined) continue;
       triedCount += 1;
       try {
         await ret;
@@ -373,7 +349,7 @@
     }
     if (triedCount === 0) {
       console.warn(
-        `${LOG_PREFIX} no rename method existed on RootlistAPI. Method list logged at boot.`
+        `${LOG_PREFIX} no rename entry-point exists on RootlistAPI on this Spotify version`
       );
     }
     return lastErr || new Error("No working rename method found");
