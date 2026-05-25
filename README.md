@@ -45,17 +45,18 @@ spicetify apply
 
 ## Usage
 
-Right-click any playlist folder in the sidebar → **Edit details** → upload an image, type a description, save.
+Right-click any playlist folder in the sidebar → **Edit folder details** → upload an image, type a description, save.
 
 | Action | Where |
 | --- | --- |
-| Edit folder image + description | Folder right-click → Edit details |
-| Export all folder data | Folder right-click → Export folder data |
-| Import folder data | Folder right-click → Import folder data |
+| Edit folder image + description | Folder right-click → Edit folder details |
+| Export / import folder data | Profile dropdown (top-right avatar) → Enhanced Folders |
+| Clean up stale entries | Profile dropdown → Enhanced Folders → Clean up deleted folders |
+| Re-render sidebar | Profile dropdown → Enhanced Folders → Re-render sidebar |
 
 ## Settings
 
-All configuration lives in the Edit details modal. No global settings panel in v1.
+Open the profile dropdown (top-right avatar) → **Enhanced Folders** for backup/sync and maintenance actions.
 
 ## Troubleshooting
 

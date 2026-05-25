@@ -357,6 +357,73 @@
     Spicetify.PopupModal.display({
       title: "Edit folder details",
       content,
+      isLarge: true,
+    });
+  }
+  //#endregion
+
+  //#region Settings modal (profile dropdown)
+  function openSettingsModal() {
+    const store = loadAll();
+    const count = Object.keys(store.folders).length;
+    const content = document.createElement("div");
+    content.className = "ef-settings-modal";
+    content.innerHTML = `
+      <div class="ef-settings-section">
+        <h3 class="ef-settings-heading">Folder customizations</h3>
+        <p class="ef-settings-text">
+          ${count} folder${count === 1 ? "" : "s"} customized.
+          Right-click any folder in the sidebar and choose <strong>Edit folder details</strong> to set an image or description.
+        </p>
+      </div>
+      <div class="ef-settings-section">
+        <h3 class="ef-settings-heading">Backup &amp; sync</h3>
+        <p class="ef-settings-text">
+          Folder IDs are unique to this Spotify install, so customizations don't sync across devices automatically. Export to back them up or move between machines.
+        </p>
+        <div class="ef-settings-actions">
+          <button type="button" class="ef-settings-btn ef-settings-export">Export folder data</button>
+          <button type="button" class="ef-settings-btn ef-settings-import">Import folder data</button>
+        </div>
+      </div>
+      <div class="ef-settings-section">
+        <h3 class="ef-settings-heading">Maintenance</h3>
+        <div class="ef-settings-actions">
+          <button type="button" class="ef-settings-btn ef-settings-cleanup">Clean up deleted folders</button>
+          <button type="button" class="ef-settings-btn ef-settings-redecorate">Re-render sidebar</button>
+        </div>
+      </div>
+    `;
+
+    content
+      .querySelector(".ef-settings-export")
+      ?.addEventListener("click", () => openExportModal());
+    content
+      .querySelector(".ef-settings-import")
+      ?.addEventListener("click", () => openImportModal());
+    content
+      .querySelector(".ef-settings-cleanup")
+      ?.addEventListener("click", async () => {
+        const before = Object.keys(loadAll().folders).length;
+        await cleanUpStaleEntries();
+        const after = Object.keys(loadAll().folders).length;
+        const removed = before - after;
+        Spicetify.showNotification(
+          removed > 0
+            ? `Removed ${removed} stale entr${removed === 1 ? "y" : "ies"}`
+            : "Nothing to clean up"
+        );
+      });
+    content
+      .querySelector(".ef-settings-redecorate")
+      ?.addEventListener("click", () => {
+        decorateAllFolders();
+        Spicetify.showNotification("Re-rendered sidebar");
+      });
+
+    Spicetify.PopupModal.display({
+      title: "Enhanced Folders",
+      content,
       isLarge: false,
     });
   }
@@ -682,13 +749,16 @@
         display: none;
       }
 
-      /* Modal — shared */
-      .ef-edit-row { display: flex; gap: 16px; padding: 8px 0; }
-      .ef-edit-image-section { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
+      /* Edit details modal */
+      .ef-edit-modal { display: flex; flex-direction: column; gap: 16px; }
+      .ef-edit-row { display: flex; gap: 20px; align-items: stretch; }
+      .ef-edit-image-section {
+        flex: 0 0 200px; display: flex; flex-direction: column; gap: 8px;
+      }
       .ef-edit-image-wrapper {
-        width: 180px; height: 180px; border-radius: 4px; overflow: hidden;
+        width: 200px; height: 200px; border-radius: 6px; overflow: hidden;
         cursor: pointer; position: relative;
-        background: hsla(0, 0%, 100%, 0.1);
+        background: hsla(0, 0%, 100%, 0.08);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
       }
       .ef-edit-img-preview { width: 100%; height: 100%; object-fit: cover; display: block; color: hsla(0,0%,100%,0.4); }
@@ -708,46 +778,106 @@
       }
       .ef-edit-remove-image:hover { color: #fff; border-color: #fff; }
 
-      .ef-edit-fields { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-      .ef-edit-label { color: var(--spice-subtext, #b3b3b3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin: 0; }
-      .ef-edit-foldername { color: #fff; font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+      .ef-edit-fields {
+        flex: 1 1 auto; display: flex; flex-direction: column;
+        gap: 10px; min-width: 0;
+      }
+      .ef-edit-label {
+        color: var(--spice-subtext, #b3b3b3);
+        font-size: 11px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.08em;
+        margin: 0 0 2px;
+      }
+      .ef-edit-foldername {
+        color: #fff; font-size: 16px; font-weight: 600;
+        margin: -4px 0 8px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
       .ef-edit-input {
         width: 100%; padding: 8px 12px;
         background: hsla(0, 0%, 100%, 0.1); border: 1px solid transparent;
         border-radius: 4px; color: #fff; font-size: 14px;
         font-family: inherit; box-sizing: border-box;
       }
-      .ef-edit-textarea { resize: vertical; flex: 1; min-height: 80px; }
+      .ef-edit-textarea { resize: vertical; min-height: 120px; flex: 1 1 auto; }
       .ef-edit-input:focus { outline: none; border-color: var(--spice-button, #1db954); background: hsla(0,0%,100%,0.15); }
 
-      .ef-edit-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; flex-wrap: wrap; }
-      .ef-edit-cancel {
-        padding: 8px 24px; background: transparent;
-        border: 1px solid hsla(0,0%,100%,0.3); border-radius: 20px;
-        color: #fff; font-size: 14px; cursor: pointer;
+      .ef-edit-actions {
+        display: flex; flex-direction: row;
+        gap: 8px; justify-content: flex-end; align-items: center;
+        flex-wrap: nowrap;
+        margin-top: auto; padding-top: 8px;
       }
-      .ef-edit-cancel:hover { border-color: #fff; }
-      .ef-edit-save, .ef-export-copy, .ef-export-download, .ef-import-replace, .ef-import-load-file {
-        padding: 8px 24px; background: var(--spice-button, #1db954);
-        border: none; border-radius: 20px;
-        color: #000; font-weight: 700; font-size: 14px; cursor: pointer;
+      .ef-edit-cancel, .ef-edit-save,
+      .ef-export-copy, .ef-export-download,
+      .ef-import-replace, .ef-import-load-file,
+      .ef-settings-btn {
+        padding: 8px 20px;
+        border-radius: 500px;
+        font-size: 14px; font-weight: 700;
+        cursor: pointer; white-space: nowrap;
+        font-family: inherit;
+        transition: transform 0.1s, background 0.1s, border-color 0.1s;
+      }
+      .ef-edit-cancel {
+        background: transparent;
+        border: 1px solid hsla(0,0%,100%,0.3);
+        color: #fff;
+      }
+      .ef-edit-cancel:hover { border-color: #fff; transform: scale(1.03); }
+      .ef-edit-save, .ef-export-copy, .ef-export-download, .ef-import-merge {
+        background: var(--spice-button, #1db954);
+        border: none; color: #000;
       }
       .ef-edit-save:hover, .ef-export-copy:hover, .ef-export-download:hover,
-      .ef-import-replace:hover, .ef-import-load-file:hover { transform: scale(1.04); }
-      .ef-import-replace { background: hsla(0, 70%, 60%, 1); color: #fff; }
-      .ef-import-load-file { background: hsla(0,0%,100%,0.15); color: #fff; }
+      .ef-import-merge:hover { transform: scale(1.04); }
+      .ef-import-replace {
+        background: hsla(0, 70%, 55%, 1);
+        border: none; color: #fff;
+      }
+      .ef-import-replace:hover { background: hsla(0, 70%, 60%, 1); transform: scale(1.04); }
+      .ef-import-load-file, .ef-settings-btn {
+        background: hsla(0,0%,100%,0.1);
+        border: 1px solid hsla(0,0%,100%,0.15);
+        color: #fff;
+      }
+      .ef-import-load-file:hover, .ef-settings-btn:hover {
+        background: hsla(0,0%,100%,0.18); border-color: hsla(0,0%,100%,0.3);
+      }
 
       .ef-edit-disclaimer {
-        margin: 12px 0 0;
+        margin: 0;
         color: var(--spice-subtext, #b3b3b3);
         font-size: 11px; line-height: 1.4;
+      }
+
+      /* Settings modal */
+      .ef-settings-modal { display: flex; flex-direction: column; gap: 20px; padding: 4px 0; }
+      .ef-settings-section { display: flex; flex-direction: column; gap: 8px; }
+      .ef-settings-heading {
+        margin: 0; color: #fff; font-size: 13px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.08em;
+      }
+      .ef-settings-text {
+        margin: 0; color: var(--spice-subtext, #b3b3b3);
+        font-size: 13px; line-height: 1.5;
+      }
+      .ef-settings-actions {
+        display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px;
+      }
+
+      /* Export/Import modal */
+      .ef-export-modal, .ef-import-modal { display: flex; flex-direction: column; gap: 12px; }
+      .ef-export-modal .ef-edit-textarea, .ef-import-modal .ef-edit-textarea {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px; min-height: 200px;
       }
     `;
     document.head.appendChild(style);
   }
   //#endregion
 
-  //#region Context menu registration
+  //#region Context menu + profile menu registration
   new Spicetify.ContextMenu.Item(
     "Edit folder details",
     (uris) => openEditDetailsModal(uris[0]),
@@ -755,19 +885,10 @@
     "edit"
   ).register();
 
-  new Spicetify.ContextMenu.Item(
-    "Export folder data",
-    () => openExportModal(),
-    (uris) => uris.length === 1 && isFolderUri(uris[0]),
-    "download"
-  ).register();
-
-  new Spicetify.ContextMenu.Item(
-    "Import folder data",
-    () => openImportModal(),
-    (uris) => uris.length === 1 && isFolderUri(uris[0]),
-    "plus2px"
-  ).register();
+  // Profile dropdown entry (matches house style: Album Length, Listening List, Enhanced Pins)
+  if (Spicetify?.Menu?.Item) {
+    new Spicetify.Menu.Item("Enhanced Folders", false, openSettingsModal).register();
+  }
   //#endregion
 
   //#region Observer + bootstrap
