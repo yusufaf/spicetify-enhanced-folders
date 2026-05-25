@@ -279,45 +279,74 @@
   }
 
   /**
-   * Try every plausible way to rename a folder. The exact API surface shifts
-   * between Spotify versions and is undocumented. Returns null on success or
-   * the last error on total failure.
+   * Rename a folder via Spicetify.Platform.RootlistAPI.
+   *
+   * Per the auto-generated Spotify Platform types (bespoke-alpha/stdlib),
+   * `renameFolder` takes a SINGLE arg — not two positional args — and
+   * internally wraps it as a protobuf Modification passed to
+   * applyModification. Empirically the wrapper expects an object whose
+   * fields populate the protobuf message; passing a bare URI string causes
+   * `.uri` / `.name` lookups to return undefined and the string encoder
+   * crashes on `.length`.
+   *
+   * We try a small set of plausible object shapes (the exact field names
+   * aren't documented), then fall back to applyModification directly, then
+   * to the lower-level _rootlistModificationClient.modify.
+   *
    * @param {string} uri
    * @param {string} newName
    * @returns {Promise<Error | null>}
    */
   async function tryRenameFolder(uri, newName) {
-    const platform = Spicetify.Platform || {};
-    const root = platform.RootlistAPI;
-    const playlist = platform.PlaylistAPI;
-    const library = platform.LibraryAPI;
+    const root = Spicetify.Platform?.RootlistAPI;
     if (!root) return new Error("Spicetify.Platform.RootlistAPI unavailable");
 
     /** @type {Array<[string, () => any]>} */
     const attempts = [
-      // RootlistAPI candidates
-      ["RootlistAPI.rename(uri, name)", () => root.rename?.(uri, newName)],
-      ["RootlistAPI.rename({uri,name})", () => root.rename?.({ uri, name: newName })],
-      ["RootlistAPI.renameFolder(uri, name)", () => root.renameFolder?.(uri, newName)],
-      ["RootlistAPI.renameItem(uri, name)", () => root.renameItem?.(uri, newName)],
-      ["RootlistAPI.setName(uri, name)", () => root.setName?.(uri, newName)],
-      ["RootlistAPI.setItemName(uri, name)", () => root.setItemName?.(uri, newName)],
-      ["RootlistAPI.update(uri, {name})", () => root.update?.(uri, { name: newName })],
-      ["RootlistAPI.updateItem(uri, {name})", () => root.updateItem?.(uri, { name: newName })],
+      // Single-object-arg shapes for renameFolder (autogen: renameFolder: (a) => any)
       [
-        "RootlistAPI.setProperties(uri, {name})",
-        () => root.setProperties?.(uri, { name: newName }),
+        "renameFolder({uri, name})",
+        () => root.renameFolder?.({ uri, name: newName }),
       ],
-      // Spotify often unifies playlist+folder rename under PlaylistAPI
-      ["PlaylistAPI.setName(uri, name)", () => playlist?.setName?.(uri, newName)],
       [
-        "PlaylistAPI.updateDetails(uri, {name})",
-        () => playlist?.updateDetails?.(uri, { name: newName }),
+        "renameFolder({uri, newName})",
+        () => root.renameFolder?.({ uri, newName }),
       ],
-      ["PlaylistAPI.rename(uri, name)", () => playlist?.rename?.(uri, newName)],
-      // LibraryAPI is another possible host
-      ["LibraryAPI.rename(uri, name)", () => library?.rename?.(uri, newName)],
-      ["LibraryAPI.setName(uri, name)", () => library?.setName?.(uri, newName)],
+      [
+        "renameFolder({folder: uri, name})",
+        () => root.renameFolder?.({ folder: uri, name: newName }),
+      ],
+      [
+        "renameFolder({folderUri: uri, name})",
+        () => root.renameFolder?.({ folderUri: uri, name: newName }),
+      ],
+      [
+        "renameFolder({uri, attributes: {name}})",
+        () => root.renameFolder?.({ uri, attributes: { name: newName } }),
+      ],
+      // applyModification direct (the wrapper renameFolder calls through to)
+      [
+        "applyModification({rename:{uri, name}})",
+        () =>
+          root.applyModification?.({ rename: { uri, name: newName } }),
+      ],
+      [
+        "applyModification({type:'rename', uri, name})",
+        () =>
+          root.applyModification?.({
+            type: "rename",
+            uri,
+            name: newName,
+          }),
+      ],
+      // Lower-level _rootlistModificationClient.modify if exposed
+      [
+        "_rootlistModificationClient.modify({rename:{uri, name}})",
+        () =>
+          root._rootlistModificationClient?.modify?.({
+            rename: { uri, name: newName },
+          }),
+      ],
     ];
 
     let lastErr = null;
@@ -331,20 +360,20 @@
         lastErr = err instanceof Error ? err : new Error(String(err));
         continue;
       }
-      if (ret === undefined) continue; // method doesn't exist
+      if (ret === undefined) continue; // method missing on this version
       triedCount += 1;
       try {
         await ret;
-        console.log(`${LOG_PREFIX} ✅ rename succeeded via ${label}`);
+        console.log(`${LOG_PREFIX} rename succeeded via ${label}`);
         return null;
       } catch (err) {
-        console.warn(`${LOG_PREFIX} ❌ ${label} rejected`, err);
+        console.warn(`${LOG_PREFIX} ${label} rejected`, err);
         lastErr = err instanceof Error ? err : new Error(String(err));
       }
     }
     if (triedCount === 0) {
       console.warn(
-        `${LOG_PREFIX} no rename method exists on RootlistAPI / PlaylistAPI / LibraryAPI. Available methods logged at boot.`
+        `${LOG_PREFIX} no rename method existed on RootlistAPI. Method list logged at boot.`
       );
     }
     return lastErr || new Error("No working rename method found");
@@ -1096,25 +1125,24 @@
       Object.keys(state.folders).length
     } stored folder(s).`
   );
-  // Probe Spicetify.Platform so we can see what's actually available on
-  // the user's Spotify version. Uses console.log (not debug) so it shows
-  // up at default DevTools level. Walks the prototype chain because some
-  // Platform APIs expose methods only via their prototype.
+  // Probe Spicetify.Platform so users can see what's actually available
+  // on their Spotify version. Joins method arrays into a single string
+  // so DevTools shows them inline instead of collapsing to `Array(N)`.
   try {
     const platform = Spicetify.Platform || {};
-    const apiNames = Object.keys(platform)
-      .filter((k) => k.endsWith("API"))
-      .sort();
-    console.log(`${LOG_PREFIX} Platform APIs:`, apiNames);
-    for (const name of [
-      "RootlistAPI",
-      "PlaylistAPI",
-      "LibraryAPI",
-      "FolderAPI",
-    ]) {
-      if (platform[name]) {
-        console.log(`${LOG_PREFIX} ${name} methods:`, listMethods(platform[name]));
-      }
+    for (const name of ["RootlistAPI", "PlaylistAPI", "LibraryAPI"]) {
+      if (!platform[name]) continue;
+      const methods = listMethods(platform[name]);
+      console.log(
+        `${LOG_PREFIX} ${name} (${methods.length} methods): ${methods.join(", ")}`
+      );
+    }
+    // Source of renameFolder reveals param shape even when minified.
+    const rf = platform.RootlistAPI?.renameFolder;
+    if (typeof rf === "function") {
+      console.log(
+        `${LOG_PREFIX} renameFolder.toString(): ${rf.toString().slice(0, 500)}`
+      );
     }
   } catch (err) {
     console.warn(`${LOG_PREFIX} Platform probe failed`, err);
