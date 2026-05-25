@@ -1,0 +1,17 @@
+{
+  "name": "spicetify-enhanced-folders",
+  "version": "1.0.0",
+  "description": "Spicetify extension: add custom images and descriptions to Spotify playlist folders.",
+  "main": "enhanced-folders.js",
+  "scripts": {
+    "test": "echo \"no tests\"",
+    "prepare": "husky"
+  },
+  "license": "MIT",
+  "packageManager": "pnpm@10.24.0",
+  "devDependencies": {
+    "@commitlint/cli": "^20.5.3",
+    "@commitlint/config-conventional": "^20.5.3",
+    "husky": "^9.1.7"
+  }
+}
