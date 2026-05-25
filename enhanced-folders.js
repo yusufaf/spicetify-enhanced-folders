@@ -275,17 +275,17 @@
           <button type="button" class="ef-edit-remove-image" ${pendingImage ? "" : "hidden"}>Remove image</button>
         </div>
         <div class="ef-edit-fields">
-          <label class="ef-edit-label">Folder</label>
-          <div class="ef-edit-foldername">${escapeHtml(folderName)}</div>
+          <label class="ef-edit-label" for="ef-edit-name">Name</label>
+          <input id="ef-edit-name" class="ef-edit-input ef-edit-name-input" type="text" maxlength="100" value="${escapeHtml(folderName)}" placeholder="Folder name">
           <label class="ef-edit-label" for="ef-edit-desc">Description</label>
-          <textarea id="ef-edit-desc" class="ef-edit-input ef-edit-textarea" rows="5" maxlength="${MAX_DESCRIPTION_LEN}" placeholder="Add a description (shown on hover)">${escapeHtml(existing.description || "")}</textarea>
-          <div class="ef-edit-actions">
-            <button type="button" class="ef-edit-cancel">Cancel</button>
-            <button type="button" class="ef-edit-save">Save</button>
-          </div>
+          <textarea id="ef-edit-desc" class="ef-edit-input ef-edit-textarea" maxlength="${MAX_DESCRIPTION_LEN}" placeholder="Add a description (shown on hover)">${escapeHtml(existing.description || "")}</textarea>
         </div>
       </div>
-      <p class="ef-edit-disclaimer">Image and description are stored locally on this device only. Folder IDs are not synced across Spotify installs — use Export to back up.</p>
+      <div class="ef-edit-actions">
+        <button type="button" class="ef-edit-cancel">Cancel</button>
+        <button type="button" class="ef-edit-save">Save</button>
+      </div>
+      <p class="ef-edit-disclaimer">Image and description are stored locally on this device only. Folder IDs are not synced across Spotify installs — use Export to back up. Rename uses Spotify's built-in folder rename.</p>
     `;
 
     const imgWrapper = content.querySelector(".ef-edit-image-wrapper");
@@ -343,15 +343,50 @@
       Spicetify.PopupModal.hide();
     });
 
-    content.querySelector(".ef-edit-save")?.addEventListener("click", () => {
+    const nameInput = /** @type {HTMLInputElement} */ (
+      content.querySelector("#ef-edit-name")
+    );
+
+    content.querySelector(".ef-edit-save")?.addEventListener("click", async () => {
       const description = descArea.value.trim();
+      const newName = nameInput.value.trim();
+
+      // Rename via Spotify's RootlistAPI if changed
+      let renameError = null;
+      if (newName && newName !== folderName) {
+        try {
+          const api = Spicetify.Platform?.RootlistAPI;
+          if (api?.rename) {
+            await api.rename(folderUri, newName);
+          } else if (api?.update) {
+            await api.update(folderUri, { name: newName });
+          } else {
+            // Fallback: direct Cosmos PUT
+            await Spicetify.CosmosAsync.put(
+              `sp://core-playlist/v1/playlist/${encodeURIComponent(folderUri)}/rows`,
+              { name: newName }
+            );
+          }
+        } catch (err) {
+          console.error(`${LOG_PREFIX} rename failed`, err);
+          renameError = err;
+        }
+      }
+
       setFolderData(folderId, {
         image: pendingImage || undefined,
         description: description || undefined,
       });
       Spicetify.PopupModal.hide();
-      Spicetify.showNotification(`Updated: ${folderName}`);
-      decorateAllFolders(); // immediate re-render
+      if (renameError) {
+        Spicetify.showNotification(
+          "Saved image/description, but rename failed",
+          true
+        );
+      } else {
+        Spicetify.showNotification(`Updated: ${newName || folderName}`);
+      }
+      decorateAllFolders();
     });
 
     Spicetify.PopupModal.display({
@@ -749,19 +784,21 @@
         display: none;
       }
 
-      /* Edit details modal */
-      .ef-edit-modal { display: flex; flex-direction: column; gap: 16px; }
-      .ef-edit-row { display: flex; gap: 20px; align-items: stretch; }
+      /* ─── Edit details modal ─── */
+      .ef-edit-modal { display: flex; flex-direction: column; gap: 12px; min-width: 480px; }
+      .ef-edit-row { display: flex; gap: 20px; align-items: flex-start; }
       .ef-edit-image-section {
-        flex: 0 0 200px; display: flex; flex-direction: column; gap: 8px;
+        flex: 0 0 200px;
+        display: flex; flex-direction: column; gap: 8px;
       }
       .ef-edit-image-wrapper {
-        width: 200px; height: 200px; border-radius: 6px; overflow: hidden;
+        width: 200px; height: 200px;
+        border-radius: 6px; overflow: hidden;
         cursor: pointer; position: relative;
-        background: hsla(0, 0%, 100%, 0.08);
+        background: var(--spice-card, hsla(0, 0%, 100%, 0.08));
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
       }
-      .ef-edit-img-preview { width: 100%; height: 100%; object-fit: cover; display: block; color: hsla(0,0%,100%,0.4); }
+      .ef-edit-img-preview { width: 100%; height: 100%; object-fit: cover; display: block; color: var(--spice-subtext, hsla(0,0%,100%,0.4)); }
       .ef-edit-img-placeholder { display: flex; align-items: center; justify-content: center; }
       .ef-edit-img-overlay {
         position: absolute; inset: 0;
@@ -772,48 +809,61 @@
       }
       .ef-edit-image-wrapper:hover .ef-edit-img-overlay { opacity: 1; }
       .ef-edit-remove-image {
-        padding: 6px 12px; background: transparent; color: var(--spice-subtext, #b3b3b3);
-        border: 1px solid hsla(0,0%,100%,0.2); border-radius: 16px;
+        padding: 6px 12px; background: transparent;
+        color: var(--spice-subtext, #b3b3b3);
+        border: 1px solid var(--spice-button-disabled, hsla(0,0%,100%,0.2));
+        border-radius: 16px;
         cursor: pointer; font-size: 12px;
       }
-      .ef-edit-remove-image:hover { color: #fff; border-color: #fff; }
+      .ef-edit-remove-image:hover { color: var(--spice-text, #fff); border-color: var(--spice-text, #fff); }
 
+      /* Right column matches image height so textarea bottom aligns with image bottom */
       .ef-edit-fields {
-        flex: 1 1 auto; display: flex; flex-direction: column;
-        gap: 10px; min-width: 0;
+        flex: 1 1 auto; min-width: 0;
+        height: 200px;
+        display: flex; flex-direction: column;
+        gap: 6px;
       }
       .ef-edit-label {
         color: var(--spice-subtext, #b3b3b3);
         font-size: 11px; font-weight: 600;
         text-transform: uppercase; letter-spacing: 0.08em;
-        margin: 0 0 2px;
-      }
-      .ef-edit-foldername {
-        color: #fff; font-size: 16px; font-weight: 600;
-        margin: -4px 0 8px;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        margin: 0;
       }
       .ef-edit-input {
         width: 100%; padding: 8px 12px;
-        background: hsla(0, 0%, 100%, 0.1); border: 1px solid transparent;
-        border-radius: 4px; color: #fff; font-size: 14px;
-        font-family: inherit; box-sizing: border-box;
+        background: var(--spice-card, hsla(0, 0%, 100%, 0.1));
+        border: 1px solid transparent;
+        border-radius: 4px;
+        color: var(--spice-text, #fff);
+        font-size: 14px; font-family: inherit;
+        box-sizing: border-box;
       }
-      .ef-edit-textarea { resize: vertical; min-height: 120px; flex: 1 1 auto; }
-      .ef-edit-input:focus { outline: none; border-color: var(--spice-button, #1db954); background: hsla(0,0%,100%,0.15); }
+      .ef-edit-name-input { font-size: 15px; font-weight: 600; }
+      .ef-edit-textarea {
+        resize: none;          /* let flex size it */
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+      .ef-edit-input:focus {
+        outline: none;
+        border-color: var(--spice-button, #1ed760);
+        background: var(--spice-main, hsla(0,0%,100%,0.15));
+      }
 
+      /* ─── Action button row (shared across all EF modals) ─── */
       .ef-edit-actions {
         display: flex; flex-direction: row;
         gap: 8px; justify-content: flex-end; align-items: center;
         flex-wrap: nowrap;
-        margin-top: auto; padding-top: 8px;
+        margin-top: 4px;
       }
       .ef-edit-cancel, .ef-edit-save,
       .ef-export-copy, .ef-export-download,
-      .ef-import-replace, .ef-import-load-file,
+      .ef-import-replace, .ef-import-load-file, .ef-import-merge,
       .ef-settings-btn {
-        padding: 8px 20px;
-        border-radius: 500px;
+        padding: 8px 22px;
+        border-radius: 999px;
         font-size: 14px; font-weight: 700;
         cursor: pointer; white-space: nowrap;
         font-family: inherit;
@@ -821,56 +871,70 @@
       }
       .ef-edit-cancel {
         background: transparent;
-        border: 1px solid hsla(0,0%,100%,0.3);
-        color: #fff;
+        border: 1px solid var(--spice-button-disabled, hsla(0,0%,100%,0.3));
+        color: var(--spice-text, #fff);
       }
-      .ef-edit-cancel:hover { border-color: #fff; transform: scale(1.03); }
+      .ef-edit-cancel:hover { border-color: var(--spice-text, #fff); transform: scale(1.03); }
+
       .ef-edit-save, .ef-export-copy, .ef-export-download, .ef-import-merge {
-        background: var(--spice-button, #1db954);
-        border: none; color: #000;
+        background: var(--spice-button, #1ed760);
+        border: none; color: var(--spice-button-text, #000);
       }
       .ef-edit-save:hover, .ef-export-copy:hover, .ef-export-download:hover,
       .ef-import-merge:hover { transform: scale(1.04); }
-      .ef-import-replace {
-        background: hsla(0, 70%, 55%, 1);
-        border: none; color: #fff;
-      }
+
+      .ef-import-replace { background: hsla(0, 70%, 55%, 1); border: none; color: #fff; }
       .ef-import-replace:hover { background: hsla(0, 70%, 60%, 1); transform: scale(1.04); }
+
       .ef-import-load-file, .ef-settings-btn {
-        background: hsla(0,0%,100%,0.1);
-        border: 1px solid hsla(0,0%,100%,0.15);
-        color: #fff;
+        background: transparent;
+        border: 1px solid var(--spice-button-disabled, hsla(0,0%,100%,0.3));
+        color: var(--spice-text, #fff);
       }
       .ef-import-load-file:hover, .ef-settings-btn:hover {
-        background: hsla(0,0%,100%,0.18); border-color: hsla(0,0%,100%,0.3);
+        border-color: var(--spice-text, #fff);
+        background: var(--spice-card, hsla(0,0%,100%,0.06));
       }
 
       .ef-edit-disclaimer {
-        margin: 0;
+        margin: 4px 0 0;
         color: var(--spice-subtext, #b3b3b3);
         font-size: 11px; line-height: 1.4;
       }
 
-      /* Settings modal */
-      .ef-settings-modal { display: flex; flex-direction: column; gap: 20px; padding: 4px 0; }
-      .ef-settings-section { display: flex; flex-direction: column; gap: 8px; }
+      /* ─── Settings modal (profile dropdown entry) ─── */
+      .ef-settings-modal {
+        display: flex; flex-direction: column;
+        gap: 18px; padding: 4px 0;
+        min-width: 320px;
+        color: var(--spice-text, #fff);
+      }
+      .ef-settings-section { display: flex; flex-direction: column; gap: 6px; }
       .ef-settings-heading {
-        margin: 0; color: #fff; font-size: 13px; font-weight: 700;
-        text-transform: uppercase; letter-spacing: 0.08em;
+        margin: 0 0 4px;
+        color: var(--spice-subtext, #b3b3b3);
+        font-size: 13px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.05em;
       }
       .ef-settings-text {
-        margin: 0; color: var(--spice-subtext, #b3b3b3);
+        margin: 0;
+        color: var(--spice-text, #fff);
         font-size: 13px; line-height: 1.5;
       }
+      .ef-settings-text strong { color: var(--spice-text, #fff); font-weight: 600; }
       .ef-settings-actions {
-        display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px;
+        display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px;
       }
 
-      /* Export/Import modal */
-      .ef-export-modal, .ef-import-modal { display: flex; flex-direction: column; gap: 12px; }
+      /* ─── Export / Import modals ─── */
+      .ef-export-modal, .ef-import-modal {
+        display: flex; flex-direction: column; gap: 10px;
+        min-width: 480px;
+      }
       .ef-export-modal .ef-edit-textarea, .ef-import-modal .ef-edit-textarea {
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        font-size: 12px; min-height: 200px;
+        font-size: 12px; min-height: 220px;
+        resize: vertical;
       }
     `;
     document.head.appendChild(style);
