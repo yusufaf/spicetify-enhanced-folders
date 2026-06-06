@@ -479,6 +479,7 @@
         Spicetify.showNotification("Saved");
       }
       decorateAllFolders();
+      refreshFoldersViewAfterDataChange();
     });
 
     Spicetify.PopupModal.display({
@@ -545,6 +546,7 @@
       .querySelector(".ef-settings-redecorate")
       ?.addEventListener("click", () => {
         decorateAllFolders();
+        refreshFoldersViewAfterDataChange();
         Spicetify.showNotification("Re-rendered sidebar");
       });
 
@@ -680,6 +682,7 @@
         `${replace ? "Replaced" : "Merged"} ${count} folder${count === 1 ? "" : "s"}`
       );
       decorateAllFolders();
+      refreshFoldersViewAfterDataChange();
     };
 
     content
@@ -825,6 +828,424 @@
         `${LOG_PREFIX} no rows matched for ${ids.length} stored folder(s) — parent folder may be collapsed.`
       );
     }
+  }
+  //#endregion
+
+  //#region Folders filter — tree builder
+  /** @typedef {{ uri: string, name: string, image?: string }} PlaylistNode */
+  /** @typedef {{ uri: string, name: string, folders: FolderNode[], playlists: PlaylistNode[] }} FolderNode */
+
+  const FOLDER_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M3 22a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h7.414l2 2H21a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H3zm1-2h16V6h-8.414l-2-2H4v16z"></path></svg>`;
+  const PLAYLIST_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M6 3h15v15.167a3.5 3.5 0 1 1-3.5-3.5H19V5H8v13.167a3.5 3.5 0 1 1-3.5-3.5H6V3zm0 13.667H4.5a1.5 1.5 0 1 0 1.5 1.5v-1.5zm13 0h-1.5a1.5 1.5 0 1 0 1.5 1.5v-1.5z"></path></svg>`;
+
+  /** @param {any} node */
+  function pickNodeImage(node) {
+    return (
+      node?.images?.[0]?.url ||
+      node?.image ||
+      node?.imageUrl ||
+      node?.imgUrl ||
+      undefined
+    );
+  }
+
+  /**
+   * Recursively convert a rootlist node into our FolderNode shape, preserving
+   * hierarchy (folders + playlists per level). `walkNode` (above) only extracts
+   * flat folder leaves; this keeps the tree for inline-expand rendering.
+   * @param {any} node
+   * @returns {FolderNode}
+   */
+  function buildFolderNode(node) {
+    /** @type {FolderNode[]} */
+    const folders = [];
+    /** @type {PlaylistNode[]} */
+    const playlists = [];
+    const children = node?.items || node?.rows || node?.children || [];
+    for (const c of children) {
+      if (!c || typeof c !== "object" || !c.uri) continue;
+      if (c.type === "folder") {
+        folders.push(buildFolderNode(c));
+      } else if (c.type === "playlist" || /:playlist:/i.test(String(c.uri))) {
+        playlists.push({
+          uri: c.uri,
+          name: c.name || "",
+          image: pickNodeImage(c),
+        });
+      }
+    }
+    return {
+      uri: node?.uri || "",
+      name: node?.name || "",
+      folders,
+      playlists,
+    };
+  }
+
+  /** @returns {Promise<FolderNode[]>} top-level folders only */
+  async function getTopLevelFolders() {
+    const api = Spicetify.Platform?.RootlistAPI;
+    if (!api?.getContents) {
+      throw new Error("Spicetify.Platform.RootlistAPI.getContents missing");
+    }
+    const root = await api.getContents();
+    return buildFolderNode(root).folders;
+  }
+
+  /** @type {FolderNode[] | null} */
+  let _folderTreeCache = null;
+  /** @param {boolean} [force] */
+  async function ensureFolderTree(force) {
+    if (!force && _folderTreeCache) return _folderTreeCache;
+    _folderTreeCache = await getTopLevelFolders();
+    return _folderTreeCache;
+  }
+  //#endregion
+
+  //#region Folders filter — chip + view state
+  let foldersFilterActive = false;
+  /** Folder URIs currently expanded in the folders view. */
+  const _expandedFolders = new Set();
+  /** @type {HTMLElement | null} */
+  let _hiddenListRoot = null;
+
+  const LIST_ROOT_SELECTORS = [
+    ".main-yourLibraryX-libraryRootlist",
+    '[data-testid="rootlist"]',
+    ".main-yourLibraryX-libraryItemContainer",
+    ".main-yourLibraryX-listItemContainer",
+  ];
+
+  // Spotify's filter chips are react-aria listbox options, NOT buttons. The
+  // stable hooks are the Encore design-system markers: the bar is a
+  // role="listbox" labelled "Filter options", each chip carries
+  // data-encore-id="chip", and selection is the e-10451-legacy-chip--selected
+  // class (+ inner --selected / encore-inverted-light-set). We clone a real
+  // chip option so ours is visually native, and toggle those same classes for
+  // the active look.
+  const CHIP_SELECTED_CLASS = "e-10451-legacy-chip--selected";
+  const CHIP_INNER_SELECTED_CLASSES = [
+    "e-10451-legacy-chip__inner--selected",
+    "encore-inverted-light-set",
+  ];
+
+  /** @returns {HTMLElement | null} the filter chip bar (react-aria listbox) */
+  function findChipBar() {
+    return /** @type {HTMLElement | null} */ (
+      document.querySelector('[role="listbox"][aria-label="Filter options"]') ||
+        document.querySelector('[aria-label="Filter options"]')
+    );
+  }
+
+  /**
+   * Pick a native chip option wrapper to clone — prefer an unselected one so
+   * the clone starts in the default (non-green) look.
+   * @param {HTMLElement} bar
+   * @returns {HTMLElement | null}
+   */
+  function pickChipTemplate(bar) {
+    const chips = bar.querySelectorAll('[data-encore-id="chip"]');
+    /** @type {HTMLElement | null} */
+    let fallback = null;
+    for (const c of chips) {
+      const he = /** @type {HTMLElement} */ (c);
+      const opt = /** @type {HTMLElement | null} */ (
+        he.closest('[role="option"]')
+      );
+      if (!opt) continue;
+      if (!fallback) fallback = opt;
+      if (he.getAttribute("aria-checked") !== "true") return opt;
+    }
+    return fallback;
+  }
+
+  function findListRoot() {
+    for (const sel of LIST_ROOT_SELECTORS) {
+      const el = document.querySelector(sel);
+      if (el) return /** @type {HTMLElement} */ (el);
+    }
+    return null;
+  }
+
+  /** Replace the first non-empty text node in `el` with `label`, clear the rest. */
+  function setChipLabel(el, label) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let node;
+    let set = false;
+    while ((node = walker.nextNode())) {
+      if (node.nodeValue && node.nodeValue.trim()) {
+        node.nodeValue = set ? "" : label;
+        set = true;
+      }
+    }
+    if (!set) el.textContent = label;
+  }
+
+  /** Toggle the native "selected" look on our cloned chip option. */
+  function applyChipActiveVisual(optEl, active) {
+    const chipDiv = optEl.querySelector('[data-encore-id="chip"]') || optEl;
+    chipDiv.classList.toggle(CHIP_SELECTED_CLASS, active);
+    chipDiv.setAttribute("aria-checked", active ? "true" : "false");
+    const inner = optEl.querySelector('[class*="legacy-chip__inner"]');
+    if (inner) {
+      for (const cls of CHIP_INNER_SELECTED_CLASSES) {
+        inner.classList.toggle(cls, active);
+      }
+    }
+    optEl.classList.toggle("ef-folders-chip-active", active);
+  }
+
+  /** Inject (or re-inject) the "Folders" chip into the native filter bar. */
+  function injectFoldersChip() {
+    const bar = findChipBar();
+    if (!bar) return; // bar not in DOM (collapsed sidebar / search view) — no-op
+    if (bar.querySelector(".ef-folders-chip-option")) return; // already present
+
+    const tmpl = pickChipTemplate(bar);
+    if (!tmpl) return; // no native chip to model ours on
+
+    // Clone a whole chip option (wrapper → chip → label span) so it's native.
+    const opt = /** @type {HTMLElement} */ (tmpl.cloneNode(true));
+    opt.classList.add("ef-folders-chip-option");
+    opt.removeAttribute("id");
+    opt.removeAttribute("data-key");
+    opt.setAttribute("tabindex", "-1");
+
+    const chipDiv = /** @type {HTMLElement} */ (
+      opt.querySelector('[data-encore-id="chip"]') || opt
+    );
+    chipDiv.classList.add("ef-folders-chip");
+    chipDiv.setAttribute("aria-label", "Folders");
+
+    const inner = opt.querySelector('[class*="legacy-chip__inner"]') || chipDiv;
+    setChipLabel(/** @type {HTMLElement} */ (inner), "Folders");
+    applyChipActiveVisual(opt, foldersFilterActive);
+
+    opt.addEventListener(
+      "click",
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleFoldersView();
+      },
+      true
+    );
+    bar.appendChild(opt);
+
+    // Any click on a native chip (or the clear-filter "X") drops our mode —
+    // native filters dissolve folders, so the two are mutually exclusive.
+    if (!(/** @type {any} */ (bar).__efChipListener)) {
+      /** @type {any} */ (bar).__efChipListener = true;
+      bar.addEventListener(
+        "click",
+        (e) => {
+          const t = /** @type {HTMLElement} */ (e.target);
+          if (
+            foldersFilterActive &&
+            !(t.closest && t.closest(".ef-folders-chip-option"))
+          ) {
+            deactivateFoldersView();
+          }
+        },
+        true
+      );
+    }
+  }
+
+  function reflectChipState() {
+    document.querySelectorAll(".ef-folders-chip-option").forEach((opt) => {
+      applyChipActiveVisual(/** @type {HTMLElement} */ (opt), foldersFilterActive);
+    });
+  }
+
+  function toggleFoldersView() {
+    if (foldersFilterActive) deactivateFoldersView();
+    else activateFoldersView();
+  }
+
+  /** @param {{ rebuild?: boolean }} [opts] */
+  function activateFoldersView(opts = {}) {
+    const root = findListRoot();
+    if (!root || !root.parentElement) {
+      Spicetify.showNotification("Enhanced Folders: library list not found", true);
+      return;
+    }
+    foldersFilterActive = true;
+    root.style.display = "none";
+    _hiddenListRoot = root;
+
+    let view = /** @type {HTMLElement | null} */ (
+      document.querySelector(".ef-folders-view")
+    );
+    const fresh = !view;
+    if (!view) {
+      view = document.createElement("div");
+      view.className = "ef-folders-view";
+      root.parentElement.insertBefore(view, root.nextSibling);
+    }
+    view.hidden = false;
+    reflectChipState();
+    renderFoldersView(view, { rebuild: opts.rebuild ?? fresh });
+  }
+
+  function deactivateFoldersView() {
+    foldersFilterActive = false;
+    // Unhide whichever node is currently the list root (React may have swapped
+    // it while we had the old one hidden).
+    if (_hiddenListRoot) {
+      _hiddenListRoot.style.display = "";
+      _hiddenListRoot = null;
+    }
+    const current = findListRoot();
+    if (current) current.style.display = "";
+    // Remove our view entirely so no stale overlay lingers; recreated on toggle.
+    document.querySelectorAll(".ef-folders-view").forEach((v) => v.remove());
+    reflectChipState();
+  }
+
+  /** Re-assert hidden list + mounted view after React re-renders the sidebar. */
+  function maintainFoldersView() {
+    if (!foldersFilterActive) return;
+    const view = document.querySelector(".ef-folders-view");
+    const root = findListRoot();
+    // React rebuilt the list root (new node, visible) or dropped our view.
+    if ((root && root.style.display !== "none") || !view) {
+      activateFoldersView({ rebuild: false });
+    }
+  }
+
+  /** Invalidate caches + refresh the view after a data edit (rename/image). */
+  function refreshFoldersViewAfterDataChange() {
+    _folderTreeCache = null;
+    if (foldersFilterActive) renderFoldersView(null, { rebuild: true });
+  }
+  //#endregion
+
+  //#region Folders filter — view render
+  /** @param {string} uri */
+  function navigateToUri(uri) {
+    try {
+      /** @type {string | null} */
+      let path = null;
+      try {
+        const u = Spicetify.URI.fromString(uri);
+        path = u?.toURLPath ? u.toURLPath(true) : null;
+      } catch {
+        /* fall through to manual parse */
+      }
+      if (!path) {
+        const parts = String(uri).split(":"); // spotify:playlist:ID
+        if (parts.length >= 3) path = `/${parts[1]}/${parts[2]}`;
+      }
+      if (path) Spicetify.Platform.History.push(path);
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} navigate failed`, err);
+    }
+  }
+
+  /**
+   * @param {HTMLElement} container
+   * @param {FolderNode} folder
+   * @param {number} depth
+   */
+  function renderFolderRow(container, folder, depth) {
+    const id = folderIdFromUri(folder.uri);
+    const stored = id ? getFolderData(id) : {};
+    const expanded = _expandedFolders.has(folder.uri);
+    const childCount = folder.folders.length + folder.playlists.length;
+
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "ef-folders-row ef-folders-folder-row";
+    row.style.paddingLeft = `${8 + depth * 16}px`;
+    row.innerHTML = `
+      <span class="ef-folders-caret ${expanded ? "ef-open" : ""}" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8.47 4.97a.75.75 0 0 1 1.06 0l6 6a.75.75 0 0 1 0 1.06l-6 6a.75.75 0 1 1-1.06-1.06L13.94 11.5 8.47 6.03a.75.75 0 0 1 0-1.06z"></path></svg></span>
+      <span class="ef-folders-art">${
+        stored.image
+          ? `<img src="${escapeHtml(stored.image)}" alt="">`
+          : FOLDER_SVG
+      }</span>
+      <span class="ef-folders-meta">
+        <span class="ef-folders-name">${escapeHtml(folder.name)}</span>
+        <span class="ef-folders-sub">${childCount} item${
+      childCount === 1 ? "" : "s"
+    }</span>
+      </span>`;
+    row.addEventListener("click", () => {
+      if (_expandedFolders.has(folder.uri))
+        _expandedFolders.delete(folder.uri);
+      else _expandedFolders.add(folder.uri);
+      renderFoldersView(); // re-render from cache, preserves expansion set
+    });
+    container.appendChild(row);
+
+    if (expanded) {
+      for (const sub of folder.folders) renderFolderRow(container, sub, depth + 1);
+      for (const pl of folder.playlists)
+        renderPlaylistRow(container, pl, depth + 1);
+    }
+  }
+
+  /**
+   * @param {HTMLElement} container
+   * @param {PlaylistNode} pl
+   * @param {number} depth
+   */
+  function renderPlaylistRow(container, pl, depth) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "ef-folders-row ef-folders-playlist-row";
+    row.style.paddingLeft = `${8 + depth * 16}px`;
+    row.innerHTML = `
+      <span class="ef-folders-caret" aria-hidden="true"></span>
+      <span class="ef-folders-art">${
+        pl.image ? `<img src="${escapeHtml(pl.image)}" alt="">` : PLAYLIST_SVG
+      }</span>
+      <span class="ef-folders-meta">
+        <span class="ef-folders-name">${escapeHtml(pl.name)}</span>
+      </span>`;
+    row.addEventListener("click", () => navigateToUri(pl.uri));
+    container.appendChild(row);
+  }
+
+  /**
+   * @param {HTMLElement | null} [view]
+   * @param {{ rebuild?: boolean }} [opts]
+   */
+  async function renderFoldersView(view, opts = {}) {
+    view =
+      view ||
+      /** @type {HTMLElement | null} */ (
+        document.querySelector(".ef-folders-view")
+      );
+    if (!view) return;
+
+    /** @type {FolderNode[]} */
+    let folders = [];
+    try {
+      folders = await ensureFolderTree(opts.rebuild);
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} folders view build failed`, err);
+    }
+
+    view.innerHTML = "";
+    const header = document.createElement("div");
+    header.className = "ef-folders-view-header";
+    header.textContent = `FOLDERS (${folders.length})`;
+    view.appendChild(header);
+
+    if (folders.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "ef-folders-empty";
+      empty.textContent = "No folders in your library.";
+      view.appendChild(empty);
+      return;
+    }
+
+    const list = document.createElement("div");
+    list.className = "ef-folders-list";
+    for (const f of folders) renderFolderRow(list, f, 0);
+    view.appendChild(list);
   }
   //#endregion
 
@@ -1009,6 +1430,67 @@
         font-size: 12px; min-height: 220px;
         resize: vertical;
       }
+
+      /* ─── Folders filter chip ─── */
+      /* Cloned from a real native chip; the active/selected look is driven by
+         toggling Spotify's own e-10451-legacy-chip--selected classes (see
+         applyChipActiveVisual), so no custom colors are needed here. */
+      .ef-folders-chip-option { cursor: pointer; }
+      .ef-folders-chip-option .ef-folders-chip { cursor: pointer; }
+
+      /* ─── Folders filter view (replaces native list while active) ─── */
+      .ef-folders-view {
+        display: flex; flex-direction: column;
+        height: 100%; min-height: 0;
+        overflow-y: auto; overflow-x: hidden;
+        padding: 4px 8px 8px;
+        box-sizing: border-box;
+        color: var(--spice-text, #fff);
+      }
+      .ef-folders-view-header {
+        color: var(--spice-subtext, #b3b3b3);
+        font-size: 11px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.08em;
+        padding: 8px 8px 6px;
+      }
+      .ef-folders-empty {
+        color: var(--spice-subtext, #b3b3b3);
+        font-size: 13px; padding: 12px 8px;
+      }
+      .ef-folders-list { display: flex; flex-direction: column; gap: 2px; }
+      .ef-folders-row {
+        display: flex; align-items: center; gap: 10px;
+        width: 100%; padding: 6px 8px;
+        background: transparent; border: none;
+        border-radius: 6px; cursor: pointer;
+        color: var(--spice-text, #fff);
+        font-family: inherit; text-align: left;
+      }
+      .ef-folders-row:hover { background: var(--spice-card, hsla(0, 0%, 100%, 0.08)); }
+      .ef-folders-caret {
+        flex: 0 0 16px; display: flex; align-items: center; justify-content: center;
+        color: var(--spice-subtext, #b3b3b3);
+        transition: transform 0.15s ease;
+      }
+      .ef-folders-caret.ef-open { transform: rotate(90deg); }
+      .ef-folders-art {
+        flex: 0 0 40px; width: 40px; height: 40px;
+        display: flex; align-items: center; justify-content: center;
+        border-radius: 4px; overflow: hidden;
+        background: var(--spice-card, hsla(0, 0%, 100%, 0.08));
+        color: var(--spice-subtext, hsla(0, 0%, 100%, 0.5));
+      }
+      .ef-folders-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .ef-folders-meta { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+      .ef-folders-name {
+        font-size: 14px; font-weight: 500;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .ef-folders-sub {
+        font-size: 11px; color: var(--spice-subtext, #b3b3b3);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .ef-folders-playlist-row .ef-folders-art { flex-basis: 32px; width: 32px; height: 32px; }
     `;
     document.head.appendChild(style);
   }
@@ -1031,22 +1513,42 @@
   //#region Observer + bootstrap
   injectStyles();
 
-  // Initial paint
+  // Initial paint + chip
   scheduleDecorate();
+  injectFoldersChip();
 
-  // Re-decorate on sidebar mutations. Scope the observer to the library
-  // rootlist if it exists (cheaper); otherwise fall back to document.body.
-  const observer = new MutationObserver(() => scheduleDecorate());
+  // Keep injected chrome (Folders chip) mounted and the folders view asserted
+  // across React re-renders. Debounced separately from decoration.
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let _chromeTimer = null;
+  function scheduleChrome() {
+    if (_chromeTimer) return;
+    _chromeTimer = setTimeout(() => {
+      _chromeTimer = null;
+      injectFoldersChip();
+      maintainFoldersView();
+    }, 150);
+  }
+
+  // Re-decorate on sidebar mutations. Observe the whole library nav so chip-bar
+  // mutations (above the rootlist) are caught too; fall back narrower.
+  const observer = new MutationObserver(() => {
+    scheduleDecorate();
+    scheduleChrome();
+  });
   const observerRoot =
+    document.querySelector('nav[aria-label="Your Library"]') ||
     document.querySelector(".main-yourLibraryX-libraryRootlist") ||
     document.querySelector('[data-testid="rootlist"]') ||
-    document.querySelector('nav[aria-label="Your Library"]') ||
     document.body;
   observer.observe(observerRoot, { childList: true, subtree: true });
 
   // Re-decorate on navigation
   try {
-    Spicetify.Platform.History.listen(() => scheduleDecorate());
+    Spicetify.Platform.History.listen(() => {
+      scheduleDecorate();
+      scheduleChrome();
+    });
   } catch (err) {
     console.warn(`${LOG_PREFIX} History.listen unavailable`, err);
   }

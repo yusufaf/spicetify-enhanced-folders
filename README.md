@@ -10,6 +10,7 @@ Add custom images, descriptions, and inline rename to Spotify playlist folders �
 - **Custom image per folder** — replaces the default folder icon in the sidebar with any image you upload (auto-cropped to a 354px JPEG, ~150 KB)
 - **Custom description** — free-text per folder, shown as a hover tooltip on the sidebar row
 - **Inline rename** — change the folder name from the same dialog (uses `Spicetify.Platform.RootlistAPI.renameFolder`, no need to open Spotify's separate Rename dialog)
+- **Folders filter chip** — a **Folders** chip in the sidebar filter bar (next to Playlists, Albums, …) that swaps the library list for a folders-only view; click a folder to expand its playlists inline. Click any native chip to return to Spotify's list
 - **One context-menu entry** — right-click any folder → **Edit folder details**; image picker + description + name fields in one modal
 - **Profile-dropdown settings panel** — Export / Import folder data as JSON, clean up stale entries, force re-render
 - **Theme-aware** — uses Spice CSS variables so the UI matches the active Spicetify theme (parity with Album Length, Listening List, Enhanced Pins)
@@ -95,6 +96,8 @@ Tested against Spotify desktop on Windows with the YourLibraryX sidebar (list vi
 - Artwork slot: `.x-entityImage-imageContainer` / `.main-cardImage-imageWrapper` / `.main-yourLibraryX-listItemArtwork` / `[data-testid="entity-image"]` (first match wins)
 - Rootlist enumeration: `Spicetify.Platform.RootlistAPI.getContents()`
 - Rename: `Spicetify.Platform.RootlistAPI.renameFolder({uri}, newName)`
+- Folders filter chip bar: `[role="listbox"][aria-label="Filter options"]` (react-aria listbox). Each native chip carries `data-encore-id="chip"`; the Folders chip is a clone of one, with the native `e-10451-legacy-chip--selected` classes toggled for its active look
+- Folders filter list root (hidden while the Folders view is active): `.main-yourLibraryX-libraryRootlist` / `[data-testid="rootlist"]` / `.main-yourLibraryX-libraryItemContainer` / `.main-yourLibraryX-listItemContainer`
 
 If Spotify renames these classes in a future build, decoration will silently no-op (no errors thrown) and the issue will be a selector update.
 
