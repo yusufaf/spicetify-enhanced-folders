@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/yusufaf/spicetify-enhanced-folders/compare/v1.0.0...v1.1.0) (2026-06-07)
+
+
+### Features
+
+* add Folders filter chip to library sidebar ([ce99d1e](https://github.com/yusufaf/spicetify-enhanced-folders/commit/ce99d1e598f040f6db9debae956bcdcf1c2ded4c))
+
 ## 1.0.0 (2026-05-26)
 
 

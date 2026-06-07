@@ -1,6 +1,6 @@
 // @ts-check
 // x-release-please-start-version
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // x-release-please-end-version
 /**
  * Spicetify Enhanced Folders
