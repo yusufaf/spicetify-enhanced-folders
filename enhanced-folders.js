@@ -556,7 +556,7 @@
     Spicetify.PopupModal.display({
       title: "Enhanced Folders",
       content,
-      isLarge: false,
+      isLarge: true,
     });
   }
   //#endregion
@@ -1403,7 +1403,7 @@
       .ef-settings-modal {
         display: flex; flex-direction: column;
         gap: 18px; padding: 4px 0;
-        min-width: 320px;
+        min-width: 480px;
         color: var(--spice-text, #fff);
       }
       .ef-settings-section { display: flex; flex-direction: column; gap: 6px; }
