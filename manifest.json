@@ -1,7 +1,6 @@
 {
   "name": "Enhanced Folders",
   "description": "Add custom images and descriptions to Spotify playlist folders.",
-  "preview": "preview.png",
   "main": "enhanced-folders.js",
   "readme": "README.md",
   "authors": [
