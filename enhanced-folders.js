@@ -21,6 +21,14 @@
   const IMAGE_JPEG_QUALITY = 0.85;
   const MAX_DESCRIPTION_LEN = 1000;
 
+  /** Extension version, shown in the settings modal footer. Kept in sync with the VERSION banner by release-please. */
+  // x-release-please-start-version
+  const EF_VERSION = "1.1.0";
+  // x-release-please-end-version
+
+  /** GitHub repo slug, used to build the "report an issue" link in the settings modal footer */
+  const EF_GITHUB_REPO = "yusufaf/spicetify-enhanced-folders";
+
   //#endregion
 
   //#region Wait for Spicetify
@@ -524,6 +532,12 @@
           <button type="button" class="ef-settings-btn ef-settings-redecorate">Re-render sidebar</button>
         </div>
       </div>
+      <div class="ef-settings-footer">
+        <span class="ef-settings-version">v${EF_VERSION}</span>
+        <a class="ef-settings-github-link" href="https://github.com/${EF_GITHUB_REPO}/issues/new" target="_blank" rel="noopener noreferrer" title="Report an issue on GitHub">
+          ${GITHUB_SVG}
+        </a>
+      </div>
     `;
 
     content
@@ -839,6 +853,9 @@
   /** @typedef {{ uri: string, name: string, folders: FolderNode[], playlists: PlaylistNode[] }} FolderNode */
 
   const FOLDER_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M3 22a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h7.414l2 2H21a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H3zm1-2h16V6h-8.414l-2-2H4v16z"></path></svg>`;
+
+  /** GitHub mark icon (16x16 viewBox, Bootstrap Icons github, MIT) */
+  const GITHUB_SVG = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg>`;
   const PLAYLIST_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M6 3h15v15.167a3.5 3.5 0 1 1-3.5-3.5H19V5H8v13.167a3.5 3.5 0 1 1-3.5-3.5H6V3zm0 13.667H4.5a1.5 1.5 0 1 0 1.5 1.5v-1.5zm13 0h-1.5a1.5 1.5 0 1 0 1.5 1.5v-1.5z"></path></svg>`;
 
   /** @param {any} node */
@@ -1421,6 +1438,41 @@
       .ef-settings-text strong { color: var(--spice-text, #fff); font-weight: 600; }
       .ef-settings-actions {
         display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px;
+      }
+
+      /* Spicetify's isLarge PopupModal stretches its dialog to fill the whole
+         viewport regardless of content length; scope the cap to just our modal
+         (:has) so other isLarge modals in Spotify/other extensions are untouched. */
+      .main-embedWidgetGenerator-container:has(.ef-settings-modal) {
+        height: auto !important;
+        max-height: min(80vh, 720px) !important;
+      }
+      .main-trackCreditsModal-mainSection:has(.ef-settings-modal) {
+        overflow-y: auto !important;
+      }
+
+      .ef-settings-footer {
+        position: sticky;
+        bottom: 0;
+        padding: 10px 0 2px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        background: var(--background-elevated-base, var(--spice-card, #282828));
+      }
+      .ef-settings-version {
+        color: var(--spice-subtext, #b3b3b3);
+        font-size: 0.75rem;
+      }
+      .ef-settings-github-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--spice-subtext, #b3b3b3);
+      }
+      .ef-settings-github-link:hover {
+        color: var(--spice-text, #fff);
       }
 
       /* ─── Export / Import modals ─── */
