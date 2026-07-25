@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/yusufaf/spicetify-enhanced-folders/compare/v1.1.0...v1.1.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* drop manifest.preview pointing at a missing file ([#4](https://github.com/yusufaf/spicetify-enhanced-folders/issues/4)) ([91dc079](https://github.com/yusufaf/spicetify-enhanced-folders/commit/91dc07996174d545681be471eec80fc6ef10836b))
+* widen Enhanced Folders settings modal ([cffa84d](https://github.com/yusufaf/spicetify-enhanced-folders/commit/cffa84d66d571c81afc250171b1b7703ab885b31))
+
 ## [1.1.0](https://github.com/yusufaf/spicetify-enhanced-folders/compare/v1.0.0...v1.1.0) (2026-06-07)
 
 
