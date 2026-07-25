@@ -1,6 +1,6 @@
 // @ts-check
 // x-release-please-start-version
-// VERSION: 1.1.0
+// VERSION: 1.1.1
 // x-release-please-end-version
 /**
  * Spicetify Enhanced Folders
@@ -23,7 +23,7 @@
 
   /** Extension version, shown in the settings modal footer. Kept in sync with the VERSION banner by release-please. */
   // x-release-please-start-version
-  const EF_VERSION = "1.1.0";
+  const EF_VERSION = "1.1.1";
   // x-release-please-end-version
 
   /** GitHub repo slug, used to build the "report an issue" link in the settings modal footer */
