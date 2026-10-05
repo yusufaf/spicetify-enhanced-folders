@@ -1,5 +1,9 @@
 # Spicetify Enhanced Folders
 
+<!-- site:skip-start -->
+**Documentation:** https://spicetify.yusufaf.dev/enhanced-folders/
+<!-- site:skip-end -->
+
 Add custom images, descriptions, and inline rename to Spotify playlist folders — the metadata Spotify never exposed natively.
 
 [![Release](https://img.shields.io/github/v/release/yusufaf/spicetify-enhanced-folders?sort=semver)](https://github.com/yusufaf/spicetify-enhanced-folders/releases)
