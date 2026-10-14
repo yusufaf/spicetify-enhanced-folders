@@ -29,6 +29,10 @@
   /** GitHub repo slug, used to build the "report an issue" link in the settings modal footer */
   const EF_GITHUB_REPO = "yusufaf/spicetify-enhanced-folders";
 
+  /** Docs page for this extension and the hub listing the others, linked from the settings modal footer */
+  const EF_DOCS_URL = "https://spicetify.yusufaf.dev/enhanced-folders/";
+  const EF_HUB_URL = "https://spicetify.yusufaf.dev/";
+
   //#endregion
 
   //#region Wait for Spicetify
@@ -534,9 +538,13 @@
       </div>
       <div class="ef-settings-footer">
         <span class="ef-settings-version">v${EF_VERSION}</span>
-        <a class="ef-settings-github-link" href="https://github.com/${EF_GITHUB_REPO}/issues/new" target="_blank" rel="noopener noreferrer" title="Report an issue on GitHub">
-          ${GITHUB_SVG}
-        </a>
+        <div class="ef-settings-footer-links">
+          <a class="ef-settings-footer-link" href="${EF_DOCS_URL}" target="_blank" rel="noopener noreferrer" title="Enhanced Folders documentation">Docs</a>
+          <a class="ef-settings-footer-link" href="${EF_HUB_URL}" target="_blank" rel="noopener noreferrer" title="More Spicetify extensions by yusufaf">More extensions</a>
+          <a class="ef-settings-github-link" href="https://github.com/${EF_GITHUB_REPO}/issues/new" target="_blank" rel="noopener noreferrer" title="Report an issue on GitHub">
+            ${GITHUB_SVG}
+          </a>
+        </div>
       </div>
     `;
 
@@ -1464,6 +1472,20 @@
       .ef-settings-version {
         color: var(--spice-subtext, #b3b3b3);
         font-size: 0.75rem;
+      }
+      .ef-settings-footer-links {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .ef-settings-footer .ef-settings-footer-link {
+        color: var(--spice-subtext, #b3b3b3);
+        font-size: 0.75rem;
+        text-decoration: none;
+      }
+      .ef-settings-footer .ef-settings-footer-link:hover {
+        color: var(--spice-text, #fff);
+        text-decoration: underline;
       }
       .ef-settings-github-link {
         display: inline-flex;
