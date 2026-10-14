@@ -9,6 +9,8 @@ Add custom images, descriptions, and inline rename to Spotify playlist folders �
 [![Release](https://img.shields.io/github/v/release/yusufaf/spicetify-enhanced-folders?sort=semver)](https://github.com/yusufaf/spicetify-enhanced-folders/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+![Edit folder details dialog with a custom cover image, the folder name and a description](preview.png)
+
 ## Features
 
 - **Custom image per folder** — replaces the default folder icon in the sidebar with any image you upload (auto-cropped to a 354px JPEG, ~150 KB)
@@ -30,30 +32,30 @@ Spotify treats playlist folders as client-side rootlist nodes; they have no firs
 4. Decorates the sidebar by finding each folder row via its `#listrow-title-<uri>` element, then overlaying the user's image inside the existing artwork container (forces `position: relative` on the slot at decoration time so the absolutely-positioned image stays bounded)
 5. Renames via the protobuf-backed `RootlistAPI.renameFolder({uri}, name)` modification, which dispatches a rootlist-changed event that Spotify's React tree picks up automatically — no manual refresh needed
 
-## Installation
+## Install
 
-### Prerequisites
-- [Spicetify CLI](https://spicetify.app/docs/getting-started) installed and applied at least once
-- Spotify desktop client (Web Player is not currently supported)
+Requires [Spicetify](https://spicetify.app/docs/getting-started), installed and applied at least once, and the Spotify desktop app (the web player isn't supported).
 
-### Steps
+### From Spicetify Marketplace
 
-**Windows (PowerShell or Git Bash):**
-```bash
-# Grab enhanced-folders.js from the latest release
-copy enhanced-folders.js "%APPDATA%\spicetify\Extensions\"
-spicetify config extensions enhanced-folders.js
-spicetify apply
-```
+1. In Spotify, open [Marketplace](https://github.com/spicetify/marketplace) (the shopping-cart icon at the top left) and stay on the **Extensions** tab.
+2. Type `Enhanced Folders` into **Search Extensions…**.
+3. If no card shows up, click **Load more** below the results until it does. Marketplace only searches the extensions it has already loaded, 100 repositories at a time, so this one usually isn't there on the first try. Changing **Sort by** doesn't help, since it only reorders what's loaded.
+4. Hover the **Enhanced Folders** card, click its download button, then click **Reload now**.
 
-**macOS / Linux:**
-```bash
-cp enhanced-folders.js ~/.config/spicetify/Extensions/
-spicetify config extensions enhanced-folders.js
-spicetify apply
-```
+### Manually
 
-Spotify will restart with the extension loaded. Confirm in DevTools (`Ctrl+Shift+J`, requires `spicetify enable-devtools`) — look for `[Enhanced Folders] Booted.` in the console.
+1. Download [`enhanced-folders.js`](https://raw.githubusercontent.com/yusufaf/spicetify-enhanced-folders/main/enhanced-folders.js) (right-click → **Save link as…**) into your Spicetify `Extensions` folder:
+   - Windows: `%APPDATA%\spicetify\Extensions`
+   - macOS / Linux: `~/.config/spicetify/Extensions`
+2. Enable it and apply:
+
+   ```bash
+   spicetify config extensions enhanced-folders.js
+   spicetify apply
+   ```
+
+To confirm it loaded, open DevTools (`Ctrl+Shift+J`, requires `spicetify enable-devtools`) and look for `[Enhanced Folders] Booted.` in the console.
 
 ## Usage
 
