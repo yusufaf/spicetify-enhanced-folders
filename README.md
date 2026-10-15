@@ -9,18 +9,14 @@ Add custom images, descriptions, and inline rename to Spotify playlist folders �
 [![Release](https://img.shields.io/github/v/release/yusufaf/spicetify-enhanced-folders?sort=semver)](https://github.com/yusufaf/spicetify-enhanced-folders/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-![Edit folder details dialog with a custom cover image, the folder name and a description](preview.png)
-
-## Known issue
-
-On Spotify 1.3.4, folder images don't show in the sidebar, and the **Folders** chip fails with "library list not found" ([#7](https://github.com/yusufaf/spicetify-enhanced-folders/issues/7)). Images, descriptions and renames are still saved. Descriptions still show on hover, and images show in the Edit folder details dialog.
+![Six playlist folders in the Your Library sidebar, each showing a custom cover image instead of the default folder icon](preview.png)
 
 ## Features
 
-- **Custom image per folder** — replaces the default folder icon in the sidebar with any image you upload (auto-cropped to a 354px JPEG, ~150 KB). Not working on Spotify 1.3.4, see [Known issue](#known-issue)
+- **Custom image per folder** — replaces the default folder icon in the sidebar with any image you upload (auto-cropped to a 354px JPEG, ~150 KB)
 - **Custom description** — free-text per folder, shown as a hover tooltip on the sidebar row
 - **Inline rename** — change the folder name from the same dialog (uses `Spicetify.Platform.RootlistAPI.renameFolder`, no need to open Spotify's separate Rename dialog)
-- **Folders filter chip** — a **Folders** chip in the sidebar filter bar (next to Playlists, Albums, …) that swaps the library list for a folders-only view; click a folder to expand its playlists inline. Click any native chip to return to Spotify's list. Not working on Spotify 1.3.4, see [Known issue](#known-issue)
+- **Folders filter chip** — a **Folders** chip in the sidebar filter bar (next to Playlists, Albums, …) that swaps the library list for a folders-only view; click a folder to expand its playlists inline. Click any native chip to return to Spotify's list
 - **One context-menu entry** — right-click any folder → **Edit folder details**; image picker + description + name fields in one modal
 - **Profile-dropdown settings panel** — Export / Import folder data as JSON, clean up stale entries, force re-render
 - **Theme-aware** — uses Spice CSS variables so the UI matches the active Spicetify theme (parity with Album Length, Listening List, Enhanced Pins)
@@ -64,6 +60,8 @@ To confirm it loaded, open DevTools (`Ctrl+Shift+J`, requires `spicetify enable-
 
 Right-click any playlist folder in the sidebar → **Edit folder details** → upload an image, type a description, optionally rename, save.
 
+![Edit folder details dialog with a custom cover image, the folder name and a description](edit-dialog.png)
+
 | Action | Where |
 | --- | --- |
 | Edit folder image / description / name | Folder right-click → **Edit folder details** |
@@ -93,20 +91,20 @@ The export format is a single JSON document keyed by folder ID:
 
 ## Troubleshooting
 
-- **Image isn't appearing in the sidebar** — on Spotify 1.3.4 this is the [known issue](#known-issue). On other versions, open DevTools (`Ctrl+Shift+J`). If you see `[Enhanced Folders] no rows matched for N stored folder(s)`, the parent folder might be collapsed — expand it. If decoration consistently fails after a Spotify update, file an issue with your Spotify version and a snippet of a folder row's HTML.
+- **Image isn't appearing in the sidebar** — open DevTools (`Ctrl+Shift+J`). If you see `[Enhanced Folders] no rows matched for N stored folder(s)`, the parent folder might be collapsed — expand it. If decoration consistently fails after a Spotify update, file an issue with your Spotify version and a snippet of a folder row's HTML.
 - **Rename toast says "API unavailable"** — the `RootlistAPI.renameFolder` signature changed in your Spotify version. File an issue with your Spotify version; image/description save will still work.
 - **Customizations missing on another device** — expected. Folder IDs are local. Use Export / Import.
 - **Lost data after Spotify reinstall** — same reason. Back up via Export regularly.
 
 ## Compatibility
 
-Tested against Spotify desktop on Windows with the YourLibraryX sidebar (list view). On Spotify 1.3.4.258 the artwork-slot and list-root selectors below match nothing, so sidebar images and the Folders view don't render ([#7](https://github.com/yusufaf/spicetify-enhanced-folders/issues/7)). Selectors used:
-- Row lookup: `#listrow-title-<uri>` → `.closest('.main-yourLibraryX-listItem, li, [role="treeitem"]')`
-- Artwork slot: `.x-entityImage-imageContainer` / `.main-cardImage-imageWrapper` / `.main-yourLibraryX-listItemArtwork` / `[data-testid="entity-image"]` (first match wins)
+Tested against Spotify desktop on Windows with the YourLibraryX sidebar (list view), including Spotify 1.3.4.258. That build dropped the mapped `main-yourLibraryX-*` classes, so each lookup below tries the older selectors first and then falls back to the 1.3.4 structure. Selectors used:
+- Row lookup: `#listrow-title-<uri>` → `.closest('.main-yourLibraryX-listItem, li, [role="treeitem"], [role="row"]')`
+- Artwork slot: `.x-entityImage-imageContainer` / `.main-cardImage-imageWrapper` / `.main-yourLibraryX-listItemArtwork` / `.main-yourLibraryX-rowImage` / `[data-testid="entity-image"]` (first match wins). On 1.3.4+, where the row is an Encore ListRow: the first `svg`/`img` in `[class*="list-row__header-side"]`, climbing to its nearest ancestor that clips overflow (the rounded artwork box)
 - Rootlist enumeration: `Spicetify.Platform.RootlistAPI.getContents()`
 - Rename: `Spicetify.Platform.RootlistAPI.renameFolder({uri}, newName)`
 - Folders filter chip bar: `[role="listbox"][aria-label="Filter options"]` (react-aria listbox). Each native chip carries `data-encore-id="chip"`; the Folders chip is a clone of one, with the native `e-10451-legacy-chip--selected` classes toggled for its active look
-- Folders filter list root (hidden while the Folders view is active): `.main-yourLibraryX-libraryRootlist` / `[data-testid="rootlist"]` / `.main-yourLibraryX-libraryItemContainer` / `.main-yourLibraryX-listItemContainer`
+- Folders filter list root (hidden while the Folders view is active): `.main-yourLibraryX-libraryRootlist` / `[data-testid="rootlist"]` / `.main-yourLibraryX-libraryItemContainer` / `.main-yourLibraryX-listItemContainer`. On 1.3.4+: the library `[role="grid"]` (or `treegrid`) inside `#Desktop_LeftSidebar_Id` / `.YourLibraryX`, climbing to its wrapper directly under the scroll content (`[data-overlayscrollbars-viewport] > div`), so the search/sort row stays visible
 
 If Spotify renames these classes in a future build, decoration will silently no-op (no errors thrown) and the issue will be a selector update.
 
