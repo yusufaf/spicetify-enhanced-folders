@@ -775,7 +775,28 @@
       const el = rowEl.querySelector(sel);
       if (el) return /** @type {HTMLElement} */ (el);
     }
-    return null;
+    return findEncoreArtworkSlot(rowEl);
+  }
+
+  /**
+   * Spotify 1.3.4+ renders library rows with the Encore ListRow component and
+   * unmapped, hashed class names. The artwork sits in the row's header side
+   * (`e-<hash>-legacy-list-row__header-side`): a rounded, overflow-hidden box
+   * holding the folder `<svg>` (or a playlist `<img>`). Anchor on the stable
+   * Encore class suffix and the icon, then climb to that clipping box.
+   * @param {Element} rowEl
+   * @returns {HTMLElement | null}
+   */
+  function findEncoreArtworkSlot(rowEl) {
+    const side = rowEl.querySelector('[class*="list-row__header-side"]');
+    const icon = side?.querySelector("svg, img:not(.ef-folder-img)");
+    if (!side || !icon) return null;
+    let el = icon.parentElement;
+    while (el && el !== side) {
+      if (getComputedStyle(el).overflow !== "visible") return el;
+      el = el.parentElement;
+    }
+    return icon.parentElement;
   }
 
   function decorateRow(rowEl, data) {
@@ -986,12 +1007,34 @@
     return fallback;
   }
 
+  // Spotify 1.3.4+ dropped the mapped library classes. The list is the grid
+  // inside the sidebar's OverlayScrollbars viewport, and its scroll content also
+  // holds the search/sort row (and Enhanced Pins), which should stay visible.
+  const LIST_GRID_SELECTOR = [
+    '#Desktop_LeftSidebar_Id [role="grid"]',
+    '#Desktop_LeftSidebar_Id [role="treegrid"]',
+    '.YourLibraryX [role="grid"]',
+    '.YourLibraryX [role="treegrid"]',
+  ].join(", ");
+  const LIBRARY_SCROLL_CONTENT_SELECTOR = "[data-overlayscrollbars-viewport] > div";
+
   function findListRoot() {
     for (const sel of LIST_ROOT_SELECTORS) {
       const el = document.querySelector(sel);
       if (el) return /** @type {HTMLElement} */ (el);
     }
-    return null;
+    const grid = document.querySelector(LIST_GRID_SELECTOR);
+    if (!grid) return null;
+    // Hide the grid's wrapper (the scroll content's child) rather than the grid
+    // itself, so our view becomes a sibling of the list in the scrolling area.
+    let el = grid;
+    while (el.parentElement) {
+      if (el.parentElement.matches(LIBRARY_SCROLL_CONTENT_SELECTOR)) {
+        return /** @type {HTMLElement} */ (el);
+      }
+      el = el.parentElement;
+    }
+    return /** @type {HTMLElement} */ (grid);
   }
 
   /** Replace the first non-empty text node in `el` with `label`, clear the rest. */
