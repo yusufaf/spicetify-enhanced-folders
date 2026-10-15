@@ -29,15 +29,15 @@ existing `enhanced-folders:data`; don't replace it.
    node shoot.mjs snapshot "enhanced-folders:data" backup.json
    ```
 
-2. Create the throwaway folder(s) at the top of the rootlist. Keep the returned URI. The
+2. Create the throwaway folder(s) at the top of the rootlist. Keep each returned URI. The
    second argument is required: calling it without one throws inside the API.
 
    ```js
    const { uri } = await Spicetify.Platform.RootlistAPI.createFolder('Road Trip', {})
    ```
 
-3. Build the seed from `backup.json`, the fixture, and the folder ID (the hex after
-   `:folder:` in the URI). Then:
+3. Build the seed from `backup.json`, the fixture, and the folder IDs (the hex after
+   `:folder:` in each URI), adding one entry per throwaway folder to the existing data. Then:
 
    ```
    node shoot.mjs restore seed.json
