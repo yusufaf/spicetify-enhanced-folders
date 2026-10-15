@@ -1343,6 +1343,7 @@
       }
       /* Hide the default folder SVG/placeholder underneath our image */
       .ef-has-image > svg,
+      .ef-has-image > :not(.ef-folder-img) > svg,
       .ef-has-image > [class*="placeholder"],
       .ef-has-image > [class*="Placeholder"] {
         visibility: hidden;
@@ -1660,6 +1661,7 @@
     document.querySelector('nav[aria-label="Your Library"]') ||
     document.querySelector(".main-yourLibraryX-libraryRootlist") ||
     document.querySelector('[data-testid="rootlist"]') ||
+    document.querySelector("#Desktop_LeftSidebar_Id") ||
     document.body;
   observer.observe(observerRoot, { childList: true, subtree: true });
 
