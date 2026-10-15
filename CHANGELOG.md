@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.2.0](https://github.com/yusufaf/spicetify-enhanced-folders/compare/v1.1.0...v1.2.0) (2026-10-15)
+
+
+### Features
+
+* add a Marketplace preview, link the docs and spell out install ([#6](https://github.com/yusufaf/spicetify-enhanced-folders/issues/6)) ([0de00bc](https://github.com/yusufaf/spicetify-enhanced-folders/commit/0de00bc758aa8ad9f66acfa2fdefce4242bb85ab))
+
+
+### Bug Fixes
+
+* drop manifest.preview pointing at a missing file ([#4](https://github.com/yusufaf/spicetify-enhanced-folders/issues/4)) ([91dc079](https://github.com/yusufaf/spicetify-enhanced-folders/commit/91dc07996174d545681be471eec80fc6ef10836b))
+* find folder artwork and the library list on Spotify 1.3.4 ([#8](https://github.com/yusufaf/spicetify-enhanced-folders/issues/8)) ([e4e7f9c](https://github.com/yusufaf/spicetify-enhanced-folders/commit/e4e7f9c7d7543241b76a61fb465ac1fbaebcefdc))
+* widen Enhanced Folders settings modal ([cffa84d](https://github.com/yusufaf/spicetify-enhanced-folders/commit/cffa84d66d571c81afc250171b1b7703ab885b31))
+
 ## [1.1.0](https://github.com/yusufaf/spicetify-enhanced-folders/compare/v1.0.0...v1.1.0) (2026-06-07)
 
 
