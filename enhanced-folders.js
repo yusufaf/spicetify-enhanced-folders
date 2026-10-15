@@ -29,6 +29,9 @@
   /** GitHub repo slug, used to build the "report an issue" link in the settings modal footer */
   const EF_GITHUB_REPO = "yusufaf/spicetify-enhanced-folders";
 
+  const EF_HUB_URL = "https://spicetify.yusufaf.dev/";
+  const EF_DOCS_URL = `${EF_HUB_URL}enhanced-folders/`;
+
   //#endregion
 
   //#region Wait for Spicetify
@@ -534,9 +537,13 @@
       </div>
       <div class="ef-settings-footer">
         <span class="ef-settings-version">v${EF_VERSION}</span>
-        <a class="ef-settings-github-link" href="https://github.com/${EF_GITHUB_REPO}/issues/new" target="_blank" rel="noopener noreferrer" title="Report an issue on GitHub">
-          ${GITHUB_SVG}
-        </a>
+        <div class="ef-settings-footer-links">
+          <a href="${EF_DOCS_URL}" target="_blank" rel="noopener noreferrer" title="Enhanced Folders documentation">Docs</a>
+          <a href="${EF_HUB_URL}" target="_blank" rel="noopener noreferrer" title="More Spicetify extensions by yusufaf">More extensions</a>
+          <a class="ef-settings-github-link" href="https://github.com/${EF_GITHUB_REPO}/issues/new" target="_blank" rel="noopener noreferrer" title="Report an issue on GitHub" aria-label="Report an issue on GitHub">
+            ${GITHUB_SVG}
+          </a>
+        </div>
       </div>
     `;
 
@@ -1459,20 +1466,35 @@
         align-items: center;
         justify-content: space-between;
         border-top: 1px solid rgba(255, 255, 255, 0.1);
-        background: var(--background-elevated-base, var(--spice-card, #282828));
+        /* Matches Spicetify's popup container, so the sticky footer blends in under any theme */
+        background: var(--spice-player, var(--background-elevated-base, #121212));
       }
       .ef-settings-version {
         color: var(--spice-subtext, #b3b3b3);
         font-size: 0.75rem;
       }
-      .ef-settings-github-link {
+      .ef-settings-footer-links {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
-        color: var(--spice-subtext, #b3b3b3);
+        gap: 12px;
+        flex-shrink: 0;
+        white-space: nowrap;
       }
-      .ef-settings-github-link:hover {
+      .ef-settings-footer a[href] {
+        display: inline-flex;
+        align-items: center;
+        color: var(--spice-subtext, #b3b3b3);
+        font-size: 0.75rem;
+        text-decoration: none;
+      }
+      .ef-settings-footer a[href]:hover {
         color: var(--spice-text, #fff);
+        text-decoration: underline;
+      }
+      .ef-settings-footer a[href]:focus-visible {
+        outline: 2px solid var(--spice-text, #fff);
+        outline-offset: 2px;
+        border-radius: 2px;
       }
 
       /* ─── Export / Import modals ─── */

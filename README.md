@@ -9,12 +9,18 @@ Add custom images, descriptions, and inline rename to Spotify playlist folders �
 [![Release](https://img.shields.io/github/v/release/yusufaf/spicetify-enhanced-folders?sort=semver)](https://github.com/yusufaf/spicetify-enhanced-folders/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+![Edit folder details dialog with a custom cover image, the folder name and a description](preview.png)
+
+## Known issue
+
+On Spotify 1.3.4, folder images don't show in the sidebar, and the **Folders** chip fails with "library list not found" ([#7](https://github.com/yusufaf/spicetify-enhanced-folders/issues/7)). Images, descriptions and renames are still saved. Descriptions still show on hover, and images show in the Edit folder details dialog.
+
 ## Features
 
-- **Custom image per folder** — replaces the default folder icon in the sidebar with any image you upload (auto-cropped to a 354px JPEG, ~150 KB)
+- **Custom image per folder** — replaces the default folder icon in the sidebar with any image you upload (auto-cropped to a 354px JPEG, ~150 KB). Not working on Spotify 1.3.4, see [Known issue](#known-issue)
 - **Custom description** — free-text per folder, shown as a hover tooltip on the sidebar row
 - **Inline rename** — change the folder name from the same dialog (uses `Spicetify.Platform.RootlistAPI.renameFolder`, no need to open Spotify's separate Rename dialog)
-- **Folders filter chip** — a **Folders** chip in the sidebar filter bar (next to Playlists, Albums, …) that swaps the library list for a folders-only view; click a folder to expand its playlists inline. Click any native chip to return to Spotify's list
+- **Folders filter chip** — a **Folders** chip in the sidebar filter bar (next to Playlists, Albums, …) that swaps the library list for a folders-only view; click a folder to expand its playlists inline. Click any native chip to return to Spotify's list. Not working on Spotify 1.3.4, see [Known issue](#known-issue)
 - **One context-menu entry** — right-click any folder → **Edit folder details**; image picker + description + name fields in one modal
 - **Profile-dropdown settings panel** — Export / Import folder data as JSON, clean up stale entries, force re-render
 - **Theme-aware** — uses Spice CSS variables so the UI matches the active Spicetify theme (parity with Album Length, Listening List, Enhanced Pins)
@@ -32,28 +38,27 @@ Spotify treats playlist folders as client-side rootlist nodes; they have no firs
 
 ## Installation
 
-### Prerequisites
-- [Spicetify CLI](https://spicetify.app/docs/getting-started) installed and applied at least once
-- Spotify desktop client (Web Player is not currently supported)
+Requires [Spicetify](https://spicetify.app/docs/getting-started), installed and applied at least once, and the Spotify desktop app (the web player isn't supported). The Marketplace route also needs the [Spicetify Marketplace](https://spicetify.app/docs/customization/marketplace) custom app.
 
-### Steps
+### From Spicetify Marketplace
 
-**Windows (PowerShell or Git Bash):**
-```bash
-# Grab enhanced-folders.js from the latest release
-copy enhanced-folders.js "%APPDATA%\spicetify\Extensions\"
-spicetify config extensions enhanced-folders.js
-spicetify apply
-```
+1. In Spotify, open **Marketplace** (the shopping-cart icon at the top left) and stay on the **Extensions** tab.
+2. Search for `Enhanced Folders`. If it doesn't show up, click **Load more** (» at the bottom of the list) until it does. Marketplace loads extensions in batches and only searches the ones it has loaded.
+3. Hover the **Enhanced Folders** card, click its download button, then click **Reload now**.
 
-**macOS / Linux:**
-```bash
-cp enhanced-folders.js ~/.config/spicetify/Extensions/
-spicetify config extensions enhanced-folders.js
-spicetify apply
-```
+### Manually
 
-Spotify will restart with the extension loaded. Confirm in DevTools (`Ctrl+Shift+J`, requires `spicetify enable-devtools`) — look for `[Enhanced Folders] Booted.` in the console.
+1. Download [`enhanced-folders.js`](https://raw.githubusercontent.com/yusufaf/spicetify-enhanced-folders/main/enhanced-folders.js) (right-click → **Save link as…**) into your Spicetify `Extensions` folder:
+   - Windows: `%APPDATA%\spicetify\Extensions`
+   - macOS / Linux: `~/.config/spicetify/Extensions`
+2. Enable it and apply:
+
+   ```bash
+   spicetify config extensions enhanced-folders.js
+   spicetify apply
+   ```
+
+To confirm it loaded, open DevTools (`Ctrl+Shift+J`, requires `spicetify enable-devtools`) and look for `[Enhanced Folders] Booted.` in the console.
 
 ## Usage
 
@@ -88,14 +93,14 @@ The export format is a single JSON document keyed by folder ID:
 
 ## Troubleshooting
 
-- **Image isn't appearing in the sidebar** — open DevTools (`Ctrl+Shift+J`). If you see `[Enhanced Folders] no rows matched for N stored folder(s)`, the parent folder might be collapsed — expand it. If decoration consistently fails after a Spotify update, file an issue with your Spotify version and a snippet of a folder row's HTML.
+- **Image isn't appearing in the sidebar** — on Spotify 1.3.4 this is the [known issue](#known-issue). On other versions, open DevTools (`Ctrl+Shift+J`). If you see `[Enhanced Folders] no rows matched for N stored folder(s)`, the parent folder might be collapsed — expand it. If decoration consistently fails after a Spotify update, file an issue with your Spotify version and a snippet of a folder row's HTML.
 - **Rename toast says "API unavailable"** — the `RootlistAPI.renameFolder` signature changed in your Spotify version. File an issue with your Spotify version; image/description save will still work.
 - **Customizations missing on another device** — expected. Folder IDs are local. Use Export / Import.
 - **Lost data after Spotify reinstall** — same reason. Back up via Export regularly.
 
 ## Compatibility
 
-Tested against Spotify desktop on Windows with the YourLibraryX sidebar (list view). Selectors used:
+Tested against Spotify desktop on Windows with the YourLibraryX sidebar (list view). On Spotify 1.3.4.258 the artwork-slot and list-root selectors below match nothing, so sidebar images and the Folders view don't render ([#7](https://github.com/yusufaf/spicetify-enhanced-folders/issues/7)). Selectors used:
 - Row lookup: `#listrow-title-<uri>` → `.closest('.main-yourLibraryX-listItem, li, [role="treeitem"]')`
 - Artwork slot: `.x-entityImage-imageContainer` / `.main-cardImage-imageWrapper` / `.main-yourLibraryX-listItemArtwork` / `[data-testid="entity-image"]` (first match wins)
 - Rootlist enumeration: `Spicetify.Platform.RootlistAPI.getContents()`
