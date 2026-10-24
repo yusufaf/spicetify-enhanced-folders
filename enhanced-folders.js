@@ -1686,5 +1686,14 @@
       Object.keys(state.folders).length
     } stored folder(s).`
   );
+
+  (window.__spicetifyHealth ??= {})["enhanced-folders"] = () => ({
+    ready: true,
+    anchors: {
+      foldersChip: document.querySelectorAll(".ef-folders-chip-option").length,
+      folderImages: document.querySelectorAll("img.ef-folder-img").length,
+    },
+    errors: [],
+  });
   //#endregion
 })();
